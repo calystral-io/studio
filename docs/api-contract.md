@@ -206,6 +206,94 @@ Core.)
 Auth: requires a valid token (any role with `reader`). Results scoped to the
 principal's `tenant_id`.
 
+## 4.1 GET /api/v1/anchors/{id}/history (bitemporal version timeline)
+
+Returns the full set of stored versions of one anchor id (every valid- and
+system-time version), ordered by `(valid_from, system_from, lsn)` ascending. The
+version set is small and bounded, so the response is not paginated. 404
+`/errors/not_found` (`resource="anchor:<id>"`) when the id has no versions in the
+tenant.
+
+Response 200:
+```json
+{
+  "id": "anchor_employee_0018",
+  "type": "Employee",
+  "tenant_id": "demo-tenant",
+  "versions": [ /* AnchorDTO ... ordered oldest-first */ ],
+  "summary": {
+    "version_count": 2,
+    "current_count": 1,
+    "superseded_count": 1,
+    "valid_segment_count": 1
+  },
+  "source": "fixture"
+}
+```
+
+- `versions`: each is a full `AnchorDTO` (section 3) carrying both intervals.
+- `summary.current_count`: versions whose system interval is open (`system_to=null`).
+- `summary.superseded_count`: versions corrected away (`system_to` set).
+- `summary.valid_segment_count`: distinct valid-time windows among the current versions.
+
+Auth: `reader`, tenant-scoped. gRPC source returns 501
+`/errors/upstream/unimplemented` with `params.surface="anchor_history"` (see
+section 0 - the read pipeline + anchor-row wire format are not in Core yet).
+
+## 4.2 GET /api/v1/anchors/{id}/diff (as-of field-level diff)
+
+Resolves the anchor at TWO bitemporal coordinates and returns the field-level
+delta between them - "what changed about this anchor between belief-state A and
+belief-state B".
+
+Query parameters:
+
+| param | type | default | notes |
+|---|---|---|---|
+| `as_of` | RFC3339 or `YYYY-MM-DD` | now | "from" valid-time coordinate |
+| `system_as_of` | RFC3339 or `YYYY-MM-DD` | (current/open) | "from" system-time coordinate |
+| `to_as_of` | RFC3339 or `YYYY-MM-DD` | now | "to" valid-time coordinate |
+| `to_system_as_of` | RFC3339 or `YYYY-MM-DD` | (current/open) | "to" system-time coordinate |
+
+A coordinate resolves (via the half-open `[from,to)` rule, `null` upper = open)
+to at most one version; a coordinate that matches no version yields a `null`
+`version` on that side (NOT a 404). Malformed `as_of`/`to_as_of` -> 400
+`invalid_as_of`; malformed `system_as_of`/`to_system_as_of` -> 400
+`invalid_system_as_of`. 404 `/errors/not_found` only when the id has no versions
+at all in the tenant.
+
+Response 200:
+```json
+{
+  "id": "anchor_employee_0018",
+  "from": {
+    "coordinate": { "as_of": "2026-05-01T00:00:00Z", "system_as_of": "2026-06-19T00:00:00Z" },
+    "version": { /* AnchorDTO or null */ }
+  },
+  "to": {
+    "coordinate": { "as_of": "2026-05-01T00:00:00Z", "system_as_of": null },
+    "version": { /* AnchorDTO or null */ }
+  },
+  "deltas": [
+    { "field": "closed", "op": "changed", "before": false, "after": true },
+    { "field": "valid_to", "op": "changed", "before": null, "after": "2026-08-06T00:00:00Z" },
+    { "field": "properties.title", "op": "changed", "before": "Engineering Manager", "after": "Principal Engineer" }
+  ],
+  "source": "fixture"
+}
+```
+
+- `deltas`: never null (`[]` when the two sides are equal). `op` is
+  `added | removed | changed`. `field` is `label | closed | valid_from |
+  valid_to | properties.<key>`. A nil side reports every present field of the
+  other as added/removed. Recording metadata (`system_from/to`, `lsn`, `txn_id`)
+  is intentionally NOT diffed - only business content.
+- Order is stable: `label`, `closed`, `valid_from`, `valid_to`, then properties
+  by key ascending.
+
+Auth: `reader`, tenant-scoped. gRPC source returns 501 with
+`params.surface="anchor_diff"`.
+
 ## 5. Infra + identity endpoints
 
 ### 5.1 GET /healthz  (unauthenticated, liveness)
