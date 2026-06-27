@@ -1,0 +1,7 @@
+# Exclude VCS, local artifacts, tests, and docs from the build context. Explicit
+# excludes (not an ignore-all + re-include pattern) so this also works on the
+# legacy docker builder, which silently drops re-included files in subdirectories.
+.git/
+tmp/
+docs/
+**/*_test.go
