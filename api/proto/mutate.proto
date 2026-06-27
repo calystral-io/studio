@@ -1,0 +1,49 @@
+// Vendored from canonical source calystral-io/core/core-api/proto (do not edit by hand; sync via `make proto-sync`).
+syntax = "proto3";
+
+// Write-path surface: transactional mutations against the embedded engine.
+// Concrete handlers land in a later lane; this lane defines the wire shape and
+// a stubbed service that returns UNIMPLEMENTED.
+package calystral.core.v1.mutate;
+
+option go_package = "github.com/calystral-io/studio/internal/corepb/mutatepb;mutatepb";
+
+// Applies mutations (node/edge create, update, close) within one transaction.
+service MutateService {
+  // Apply a batch of mutations atomically and return the commit outcome.
+  rpc Mutate(MutateRequest) returns (MutateResponse);
+}
+
+message MutateRequest {
+  // Tenant the mutation is scoped to. Set by the gateway-verified principal.
+  string tenant = 1;
+  // The mutations to apply, in order, within a single transaction.
+  repeated Mutation mutations = 2;
+}
+
+message Mutation {
+  // The mutation kind.
+  MutationKind kind = 1;
+  // Engine-encoded operation payload (cybr value bytes).
+  bytes payload = 2;
+}
+
+enum MutationKind {
+  // Unset; rejected by the handler.
+  MUTATION_KIND_UNSPECIFIED = 0;
+  // Create a node anchor.
+  MUTATION_KIND_CREATE_NODE = 1;
+  // Create an edge between two anchors.
+  MUTATION_KIND_CREATE_EDGE = 2;
+  // Update an existing anchor in place.
+  MUTATION_KIND_UPDATE = 3;
+  // Close (logically delete) an anchor.
+  MUTATION_KIND_CLOSE = 4;
+}
+
+message MutateResponse {
+  // The committed transaction id.
+  uint64 txn_id = 1;
+  // Number of anchors affected by the transaction.
+  uint64 affected = 2;
+}

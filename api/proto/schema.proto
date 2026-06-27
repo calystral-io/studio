@@ -1,0 +1,41 @@
+// Vendored from canonical source calystral-io/core/core-api/proto (do not edit by hand; sync via `make proto-sync`).
+syntax = "proto3";
+
+// Schema-management surface: declare and inspect the engine schema.
+// Concrete handlers land in a later lane; this lane defines the wire shape and
+// a stubbed service that returns UNIMPLEMENTED.
+package calystral.core.v1.schema;
+
+option go_package = "github.com/calystral-io/studio/internal/corepb/schemapb;schemapb";
+
+// Manages tenant schema definitions (node/edge types, properties).
+service SchemaService {
+  // Declare or update the schema for a tenant.
+  rpc ApplySchema(ApplySchemaRequest) returns (ApplySchemaResponse);
+  // Read the current schema for a tenant.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+}
+
+message ApplySchemaRequest {
+  // Tenant the schema applies to.
+  string tenant = 1;
+  // Schema definition source text.
+  string definition = 2;
+}
+
+message ApplySchemaResponse {
+  // The schema version assigned after applying.
+  uint64 version = 1;
+}
+
+message GetSchemaRequest {
+  // Tenant whose schema is requested.
+  string tenant = 1;
+}
+
+message GetSchemaResponse {
+  // The current schema version.
+  uint64 version = 1;
+  // Schema definition source text.
+  string definition = 2;
+}
