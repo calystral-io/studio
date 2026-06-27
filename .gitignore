@@ -1,0 +1,16 @@
+# Build output
+/bin/
+/studio
+/dist/
+
+# Go build temp dir used to dodge the tmpfs quota in dev
+/.gotmp/
+
+# Local env overrides
+*.local
+.env
+
+# Editor noise
+.idea/
+.vscode/
+*.swp
