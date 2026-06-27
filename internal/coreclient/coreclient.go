@@ -282,6 +282,162 @@ type ListShardsResult struct {
 	Source string
 }
 
+// --- Runtime state (contract sections 13/14/15) ----------------------------
+//
+// The runtime view is an OPERATOR observability surface over the cvm execution
+// engine: VM metrics (the in-process Prometheus registry), the content-addressed
+// plan cache, and the cybr opcode instruction set with execution profiling. Like
+// the cluster view this is LIVE state, NOT bitemporal: every snapshot carries an
+// `observed_at` instant. NOTE: per-opcode execution counts and the
+// instructions-executed total are FORWARD-LOOKING telemetry - the interpreter
+// does not tally them today - so the fixture seeds representative values behind
+// the demo-data tag.
+
+// HistogramBucket is one cumulative bucket of a histogram snapshot. UpperBound is
+// the inclusive `le` bound in the metric's native unit (nanoseconds/bytes); a nil
+// UpperBound marshals to JSON null and denotes the +Inf overflow bucket.
+type HistogramBucket struct {
+	UpperBound *uint64 `json:"upper_bound"`
+	Count      uint64  `json:"count"`
+}
+
+// HistogramValue is a point-in-time histogram snapshot (cumulative buckets).
+type HistogramValue struct {
+	Buckets []HistogramBucket `json:"buckets"`
+	Sum     uint64            `json:"sum"`
+	Count   uint64            `json:"count"`
+}
+
+// MetricSeries is one named VM metric series. Kind is "counter", "gauge", or
+// "histogram". For counters/gauges Value holds the scalar (counters are >= 0,
+// gauges may be negative) and Histogram is nil; for histograms Histogram holds
+// the snapshot and Value is nil.
+type MetricSeries struct {
+	Name      string          `json:"name"`
+	Kind      string          `json:"kind"`
+	Help      string          `json:"help"`
+	Value     *int64          `json:"value"`
+	Histogram *HistogramValue `json:"histogram"`
+}
+
+// MetricGroup buckets the VM metric series by subsystem (e.g. storage,
+// transactions, raft, calvin).
+type MetricGroup struct {
+	Subsystem string         `json:"subsystem"`
+	Series    []MetricSeries `json:"series"`
+}
+
+// PlanCacheStats is the plan-cache rollup (mirrors the cvm CacheMetrics plus the
+// configured byte budget). HitRateMilli is hits/(hits+misses) in per-mille
+// (0..1000), and is 0 when there have been no lookups.
+type PlanCacheStats struct {
+	Hits          uint64 `json:"hits"`
+	Misses        uint64 `json:"misses"`
+	Inserts       uint64 `json:"inserts"`
+	Evictions     uint64 `json:"evictions"`
+	Entries       int    `json:"entries"`
+	ResidentBytes uint64 `json:"resident_bytes"`
+	CapacityBytes uint64 `json:"capacity_bytes"`
+	HitRateMilli  int    `json:"hit_rate_milli"`
+}
+
+// RuntimeSummary is the cvm runtime observability rollup (contract section 13):
+// grouped VM metric series, the plan-cache rollup, and headline execution
+// counters. Live state; ObservedAt is the snapshot instant.
+type RuntimeSummary struct {
+	UptimeSeconds        int64          `json:"uptime_seconds"`
+	InstructionsExecuted uint64         `json:"instructions_executed"`
+	ActiveTransactions   int            `json:"active_transactions"`
+	OpcodeCount          int            `json:"opcode_count"`
+	MetricSeriesCount    int            `json:"metric_series_count"`
+	PlanCache            PlanCacheStats `json:"plan_cache"`
+	MetricGroups         []MetricGroup  `json:"metric_groups"`
+	ObservedAt           time.Time      `json:"observed_at"`
+}
+
+// OpcodeDTO is one cybr VM opcode as the instruction-set view renders it
+// (contract section 14). Code is the stable u16 discriminant and CodeHex its
+// 0x-prefixed form. ExecCount/ExecShareMilli are forward-looking execution
+// profiling (see the section note); ExecShareMilli is per-mille of all executed
+// instructions (0..1000).
+type OpcodeDTO struct {
+	Mnemonic       string    `json:"mnemonic"`
+	Code           int       `json:"code"`
+	CodeHex        string    `json:"code_hex"`
+	Category       string    `json:"category"`
+	ShortForm      bool      `json:"short_form"`
+	ExecCount      uint64    `json:"exec_count"`
+	ExecShareMilli int       `json:"exec_share_milli"`
+	ObservedAt     time.Time `json:"observed_at"`
+}
+
+// PlanCacheEntryDTO is one resident plan-cache entry (contract section 15). Key
+// is the content-address (BLAKE3 of the bitcode) rendered as hex. SizeBytes is
+// the evictable footprint; Cost is the deterministic recompute-cost proxy; Freq
+// is the access frequency; RefCount is the number of referencing tenants.
+type PlanCacheEntryDTO struct {
+	Key        string    `json:"key"`
+	SizeBytes  uint64    `json:"size_bytes"`
+	Cost       uint64    `json:"cost"`
+	Freq       uint64    `json:"freq"`
+	RefCount   int       `json:"ref_count"`
+	Pinned     bool      `json:"pinned"`
+	ObservedAt time.Time `json:"observed_at"`
+}
+
+// RuntimeSummaryParams carries the validated inputs for the runtime rollup. The
+// runtime is shared operator infrastructure, so it is not tenant-scoped; the
+// Principal is still carried so the gRPC adapter can mint the principal JWT.
+type RuntimeSummaryParams struct {
+	TenantID  string
+	Principal *auth.Principal
+}
+
+// RuntimeSummaryResult is the runtime rollup plus the source tag.
+type RuntimeSummaryResult struct {
+	Summary RuntimeSummary
+	Source  string
+}
+
+// ListOpcodesParams carries the validated inputs for the opcode listing. Q
+// matches the mnemonic (case-insensitive substring); Category, if set, is an
+// exact category filter.
+type ListOpcodesParams struct {
+	TenantID  string
+	PageSize  int
+	Cursor    string
+	Category  string
+	Q         string
+	Principal *auth.Principal
+}
+
+// ListOpcodesResult is one page of opcodes (code asc) plus the source tag.
+type ListOpcodesResult struct {
+	Items  []OpcodeDTO
+	Page   Page
+	Source string
+}
+
+// ListPlanCacheEntriesParams carries the validated inputs for the plan-cache
+// entry listing. Pinned is "", "true", or "false" (an exact filter when set); Q
+// matches the entry key (case-insensitive substring, for prefix lookups).
+type ListPlanCacheEntriesParams struct {
+	TenantID  string
+	PageSize  int
+	Cursor    string
+	Pinned    string
+	Q         string
+	Principal *auth.Principal
+}
+
+// ListPlanCacheEntriesResult is one page of plan-cache entries (key asc) plus the
+// source tag.
+type ListPlanCacheEntriesResult struct {
+	Items  []PlanCacheEntryDTO
+	Page   Page
+	Source string
+}
+
 // CoreClient is the read-path port. CheckCore reports the readiness status the
 // /readyz endpoint surfaces.
 type CoreClient interface {
@@ -291,6 +447,9 @@ type CoreClient interface {
 	ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error)
 	ListNodes(ctx context.Context, p ListNodesParams) (*ListNodesResult, error)
 	ListShards(ctx context.Context, p ListShardsParams) (*ListShardsResult, error)
+	RuntimeSummary(ctx context.Context, p RuntimeSummaryParams) (*RuntimeSummaryResult, error)
+	ListOpcodes(ctx context.Context, p ListOpcodesParams) (*ListOpcodesResult, error)
+	ListPlanCacheEntries(ctx context.Context, p ListPlanCacheEntriesParams) (*ListPlanCacheEntriesResult, error)
 	CheckCore(ctx context.Context) string
 	Source() string
 	Close() error

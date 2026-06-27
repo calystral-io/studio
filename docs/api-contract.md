@@ -1,4 +1,4 @@
-# Calystral Studio - BFF <-> UI API Contract (PR1 + PR2)
+# Calystral Studio - BFF <-> UI API Contract (PR1 - PR4)
 
 Canonical seam between `calystral-io/studio` (Go BFF) and `calystral-io/studio-ui`
 (React). The BFF OWNS this contract; the UI consumes it. This file is committed
@@ -376,4 +376,117 @@ gap today): the BFF returns 501 `/errors/upstream/unimplemented` with
 the entries endpoint. We never fabricate rows. (PR2 default is `fixture`, so the
 happy path shows real paginated data; the 501 path is covered by integration tests
 against a stub Core.)
+
+## 11. Cluster DTOs + endpoints (PR3)
+
+The cluster view is an OPERATOR observability surface over the cvm cluster
+(per-shard Raft groups, key-range sharding, replicas across regions, storage
+tiers). Unlike anchors/ledgers it is LIVE state, NOT bitemporal: every DTO carries
+an `observed_at` snapshot instant and no valid/system time. The cluster is shared
+operator infrastructure, so it is NOT tenant-scoped. All endpoints require
+`reader`.
+
+### 11.1 ClusterSummary / Node DTOs
+
+`ClusterSummary` (the rollup): `node_count`, `shard_count`, `region_count`,
+`replication_factor` (int); `health` ("healthy"|"degraded"); `shard_health`
+(`{healthy, degraded, under_replicated}` int counts, always all present);
+`regions` (array of `{name, node_count, shard_count, health}`); `observed_at`
+(RFC3339). Health is derived: any non-healthy shard or any non-"up" node in scope
+=> "degraded".
+
+`NodeDTO`: `id`, `address`, `region`, `status` ("up"|"draining"|"down"),
+`shard_count`, `leader_count`, `raft_term` (int), `used_bytes`, `capacity_bytes`
+(int64), `version`, `last_heartbeat` (RFC3339).
+
+### 11.2 GET /api/v1/cluster (rollup) + GET /api/v1/cluster/nodes (paginated)
+
+`/cluster` returns the `ClusterSummary` object with a top-level `source` tag (the
+summary fields are promoted). `/cluster/nodes` returns the standard
+`{items,page,source}` envelope (id asc).
+
+Node query parameters: `page_size` (1..200), `cursor` (opaque), `region` (exact),
+`status` (exact), `q` (case-insensitive substring over id+address+region). Unknown
+`region`/`status` values match nothing (not a 400).
+
+## 12. Shard DTO + GET /api/v1/cluster/shards (PR3)
+
+`ShardDTO`: `id`, `raft_group_id`; `key_range` (`{start, end}`, half-open; `end`
+null = unbounded upper edge of the final shard); `region`, `leader_node_id`;
+`replica_node_ids` (string array, includes the leader; shorter than
+`replication_factor` exactly when `under_replicated`); `replication_factor`,
+`status` ("healthy"|"degraded"|"under_replicated"), `raft_term` (int),
+`commit_index`, `applied_index`, `lag` (int64, = commit-applied, always >= 0),
+`size_bytes` (int64), `tier` ("Hot"|"Warm"|"Cold"|"Archive"), `observed_at`.
+
+`/cluster/shards` returns `{items,page,source}` (id asc). Query parameters:
+`page_size`, `cursor`, `region` (exact), `status` (exact), `node` (matches shards
+where the node is the leader OR a replica), `q` (substring over
+id+raft_group_id+key_range edges).
+
+501 behavior under `STUDIO_CORE_SOURCE=grpc`: `params.surface` is
+`cluster_summary` / `cluster_nodes` / `cluster_shards` respectively.
+
+## 13. Runtime-state DTOs + GET /api/v1/runtime (PR4)
+
+The runtime view is an OPERATOR observability surface over the cvm execution
+engine: VM metrics (the in-process registry), the content-addressed plan cache,
+and the cybr opcode instruction set with execution profiling. LIVE state (carries
+`observed_at`); NOT tenant-scoped; requires `reader`.
+
+> NOTE: `OpcodeDTO.exec_count` / `exec_share_milli` and
+> `RuntimeSummary.instructions_executed` are FORWARD-LOOKING telemetry - the cvm
+> interpreter does not tally per-opcode or instruction counts today - so the
+> fixture seeds representative values behind the demo-data (`source:"fixture"`)
+> tag. Opcode discriminants are assigned within the documented cybr v0.2.8
+> category ranges; mnemonics and categories are the real instruction set.
+
+`MetricSeries`: `name` (Prometheus exposition name, e.g. `cvm_txn_commits_total`),
+`kind` ("counter"|"gauge"|"histogram"), `help`, `value` (int64 scalar for
+counter/gauge - counters >= 0, gauges may be negative - `null` for histograms),
+`histogram` (present only for histograms): `{buckets: [{upper_bound, count}],
+sum, count}` where `upper_bound` is the inclusive `le` bound (native unit
+ns/bytes) and a `null` bound is the +Inf overflow bucket; bucket counts are
+cumulative.
+
+`MetricGroup`: `{subsystem, series: [MetricSeries]}`. The registry exposes 18
+named series across 4 subsystems (storage, transactions, raft, calvin).
+
+`PlanCacheStats`: `hits`, `misses`, `inserts`, `evictions` (uint64), `entries`
+(int), `resident_bytes` (uint64, excludes pinned entries), `capacity_bytes`
+(uint64, the byte budget; default 64 MiB), `hit_rate_milli` (int, per-mille
+0..1000; 0 when no lookups).
+
+`GET /api/v1/runtime` returns the `RuntimeSummary` object with a top-level
+`source` tag (fields promoted): `uptime_seconds` (int64), `instructions_executed`
+(uint64), `active_transactions` (int, mirrors the `cvm_txn_active` gauge),
+`opcode_count` and `metric_series_count` (int, derived from the rows),
+`plan_cache` (PlanCacheStats), `metric_groups` (array), `observed_at` (RFC3339).
+
+## 14. Opcode DTO + GET /api/v1/runtime/opcodes (PR4)
+
+`OpcodeDTO`: `mnemonic`, `code` (int, stable u16 discriminant), `code_hex`
+(0x-prefixed, e.g. `"0x00D8"`), `category` (e.g. storage/comparison/control_flow/
+arithmetic/load/stream/ledger/...), `short_form` (bool, single-byte encoding =
+code < 0x100), `exec_count` (uint64), `exec_share_milli` (int, per-mille of all
+executed instructions 0..1000), `observed_at`.
+
+`/runtime/opcodes` returns `{items,page,source}` (code asc). Query parameters:
+`page_size` (1..200), `cursor`, `category` (exact; unknown matches nothing), `q`
+(case-insensitive substring over the mnemonic).
+
+## 15. Plan-cache entry DTO + GET /api/v1/runtime/plan-cache (PR4)
+
+`PlanCacheEntryDTO`: `key` (content address - BLAKE3 of the bitcode - as a 64-char
+hex string), `size_bytes` (uint64, evictable footprint), `cost` (uint64,
+deterministic recompute-cost proxy), `freq` (uint64, access frequency),
+`ref_count` (int, referencing tenants), `pinned` (bool), `observed_at`.
+
+`/runtime/plan-cache` returns `{items,page,source}` (key asc). Query parameters:
+`page_size`, `cursor`, `pinned` ("true"|"false" exact filter; any other non-empty
+value matches nothing), `q` (case-insensitive substring over the key, for prefix
+lookups).
+
+501 behavior under `STUDIO_CORE_SOURCE=grpc`: `params.surface` is
+`runtime_summary` / `runtime_opcodes` / `runtime_plan_cache` respectively.
 </content>

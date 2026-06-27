@@ -369,6 +369,130 @@ func (s *Server) handleClusterShards(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, shardsResponse{Items: res.Items, Page: res.Page, Source: res.Source})
 }
 
+// runtimeSummaryResponse is the cvm runtime rollup with a top-level `source` tag
+// (contract section 13). The embedded RuntimeSummary fields are promoted.
+type runtimeSummaryResponse struct {
+	coreclient.RuntimeSummary
+	Source string `json:"source"`
+}
+
+// handleRuntimeSummary serves the cvm runtime-state rollup (VM metrics +
+// plan-cache stats + headline counters). Requires the reader role. The runtime is
+// shared operator infrastructure (not tenant-scoped data).
+func (s *Server) handleRuntimeSummary(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	res, err := s.core.RuntimeSummary(r.Context(), coreclient.RuntimeSummaryParams{
+		TenantID:  p.TenantID,
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, runtimeSummaryResponse{RuntimeSummary: res.Summary, Source: res.Source})
+}
+
+// opcodesResponse is the paginated opcode-profile envelope (contract section 14).
+type opcodesResponse struct {
+	Items  []coreclient.OpcodeDTO `json:"items"`
+	Page   coreclient.Page        `json:"page"`
+	Source string                 `json:"source"`
+}
+
+// handleRuntimeOpcodes validates query params and serves a page of opcodes (code
+// asc). Requires the reader role. An unknown category filter matches nothing.
+func (s *Server) handleRuntimeOpcodes(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	q := r.URL.Query()
+	pageSize, err := parsePageSize(q.Get("page_size"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	res, err := s.core.ListOpcodes(r.Context(), coreclient.ListOpcodesParams{
+		TenantID:  p.TenantID,
+		PageSize:  pageSize,
+		Cursor:    q.Get("cursor"),
+		Category:  q.Get("category"),
+		Q:         q.Get("q"),
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, opcodesResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
+// planCacheResponse is the paginated plan-cache-entry envelope (contract section
+// 15).
+type planCacheResponse struct {
+	Items  []coreclient.PlanCacheEntryDTO `json:"items"`
+	Page   coreclient.Page                `json:"page"`
+	Source string                         `json:"source"`
+}
+
+// handleRuntimePlanCache validates query params and serves a page of plan-cache
+// entries (key asc). Requires the reader role. The `pinned` filter is "true" or
+// "false"; any other non-empty value matches nothing.
+func (s *Server) handleRuntimePlanCache(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	q := r.URL.Query()
+	pageSize, err := parsePageSize(q.Get("page_size"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	res, err := s.core.ListPlanCacheEntries(r.Context(), coreclient.ListPlanCacheEntriesParams{
+		TenantID:  p.TenantID,
+		PageSize:  pageSize,
+		Cursor:    q.Get("cursor"),
+		Pinned:    q.Get("pinned"),
+		Q:         q.Get("q"),
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, planCacheResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
 // parseLSNBounds resolves the optional from_lsn/to_lsn params. An empty value is
 // an unbounded (nil) side; a non-integer value or an inverted window
 // (from_lsn > to_lsn) is a 400 invalid_lsn_range error.
