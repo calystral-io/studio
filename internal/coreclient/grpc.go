@@ -27,8 +27,12 @@ import (
 // principalMetadataKey is the gRPC metadata key Core reads the principal from.
 const principalMetadataKey = "x-calystral-principal"
 
-// anchorsSurface is the contract surface tag for anchor-listing errors.
-const anchorsSurface = "anchors"
+// Contract surface tags for upstream errors (params.surface).
+const (
+	anchorsSurface       = "anchors"
+	ledgersSurface       = "ledgers"
+	ledgerEntriesSurface = "ledger_entries"
+)
 
 // GRPCClient is the live Core adapter.
 type GRPCClient struct {
@@ -130,18 +134,144 @@ func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*Lis
 	return nil, apierr.Unimplemented(anchorsSurface)
 }
 
-// mapCoreError translates a gRPC status into a contract error. UNIMPLEMENTED is
-// the honest upstream gap (501); transport failures are 502 unavailable.
+// ListLedgers mints the principal JWT, issues the list-ledgers CyQL read, and
+// maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; the
+// row-decode path is structured but explicitly TODO (no cybr decoder).
+func (c *GRPCClient) ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListLedgersCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, ledgersSurface)
+	}
+
+	// Core returned rows but PR2 has no cybr decoder, so we cannot honestly
+	// surface them yet. Report the gap rather than fabricate ledgers.
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into LedgerSummary.
+	_ = resp
+	return nil, apierr.Unimplemented(ledgersSurface)
+}
+
+// ListLedgerEntries mints the principal JWT, issues the list-entries CyQL read,
+// and maps Core's response. As with ListLedgers, the only mapped path today is
+// UNIMPLEMENTED -> 501; we never fabricate entries.
+func (c *GRPCClient) ListLedgerEntries(ctx context.Context, p ListLedgerEntriesParams) (*ListLedgerEntriesResult, error) {
+	if p.FromLSN != nil && p.ToLSN != nil && *p.FromLSN > *p.ToLSN {
+		return nil, apierr.InvalidLSNRange(*p.FromLSN, *p.ToLSN)
+	}
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &querypb.QueryRequest{
+		Cyql:   buildListLedgerEntriesCyQL(p),
+		Tenant: p.Principal.TenantID,
+	}
+	if p.AsOf != nil {
+		req.AsOfUnixMs = uint64(p.AsOf.UnixMilli())
+	}
+
+	resp, err := c.query.Query(ctx, req)
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, ledgerEntriesSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into LedgerEntry.
+	_ = resp
+	return nil, apierr.Unimplemented(ledgerEntriesSurface)
+}
+
+// withPrincipal mints the dev principal JWT and appends it as the
+// x-calystral-principal outgoing metadata Core reads.
+func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (context.Context, error) {
+	token, err := c.signer.Mint(p)
+	if err != nil {
+		return nil, apierr.Internal(fmt.Sprintf("mint principal jwt: %v", err))
+	}
+	return metadata.AppendToOutgoingContext(ctx, principalMetadataKey, token), nil
+}
+
+// buildListLedgersCyQL renders a plausible CyQL read for the ledger catalog with
+// the requested `q` filter. Core returns UNIMPLEMENTED regardless of the text.
+func buildListLedgersCyQL(p ListLedgersParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (l:Ledger)")
+	if q := strings.TrimSpace(p.Q); q != "" {
+		fmt.Fprintf(&b, " WHERE l CONTAINS %q", q)
+	}
+	b.WriteString(" RETURN l ORDER BY l.name")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildListLedgerEntriesCyQL renders a plausible CyQL read for one ledger's
+// entries (newest first) with the requested filters. Core returns UNIMPLEMENTED
+// regardless of the text.
+func buildListLedgerEntriesCyQL(p ListLedgerEntriesParams) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "MATCH (e:LedgerEntry)-[:IN]->(l:Ledger {name: %q})", p.Name)
+	var wheres []string
+	if p.Kind != "" {
+		wheres = append(wheres, fmt.Sprintf("e.kind = %q", p.Kind))
+	}
+	if p.FromLSN != nil {
+		wheres = append(wheres, fmt.Sprintf("e.lsn >= %d", *p.FromLSN))
+	}
+	if p.ToLSN != nil {
+		wheres = append(wheres, fmt.Sprintf("e.lsn <= %d", *p.ToLSN))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("e CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN e ORDER BY e.lsn DESC")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// mapCoreError translates a gRPC status into a contract error for the anchors
+// surface. UNIMPLEMENTED is the honest upstream gap (501); transport failures
+// are 502 unavailable.
 func mapCoreError(err error) error {
+	return mapCoreErrorForSurface(err, anchorsSurface)
+}
+
+// mapCoreErrorForSurface is mapCoreError parameterized by the contract surface
+// tag so every read path reports its own params.surface.
+func mapCoreErrorForSurface(err error, surface string) error {
 	st, ok := status.FromError(err)
 	if !ok {
-		return apierr.Unavailable(anchorsSurface)
+		return apierr.Unavailable(surface)
 	}
 	switch st.Code() {
 	case codes.Unimplemented:
-		return apierr.Unimplemented(anchorsSurface)
+		return apierr.Unimplemented(surface)
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
-		return apierr.Unavailable(anchorsSurface)
+		return apierr.Unavailable(surface)
 	default:
 		// An unexpected upstream code may carry internal detail in its message;
 		// log it and return a generic envelope so nothing leaks on the wire (the

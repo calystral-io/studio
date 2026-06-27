@@ -20,6 +20,7 @@ const (
 	CodePageSizeOutOfRange Code = "/errors/validation/page_size_out_of_range"
 	CodeInvalidCursor      Code = "/errors/validation/invalid_cursor"
 	CodeInvalidAsOf        Code = "/errors/validation/invalid_as_of"
+	CodeInvalidLSNRange    Code = "/errors/validation/invalid_lsn_range"
 	CodeMissingToken       Code = "/errors/auth/missing_token"
 	CodeInvalidToken       Code = "/errors/auth/invalid_token"
 	CodeForbidden          Code = "/errors/auth/forbidden"
@@ -42,6 +43,7 @@ var Registry = map[Code]Descriptor{
 	CodePageSizeOutOfRange: {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"min", "max", "got"}},
 	CodeInvalidCursor:      {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"cursor"}},
 	CodeInvalidAsOf:        {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"value"}},
+	CodeInvalidLSNRange:    {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"from", "to"}},
 	CodeMissingToken:       {HTTPStatus: http.StatusUnauthorized, ParamKeys: []string{}},
 	CodeInvalidToken:       {HTTPStatus: http.StatusUnauthorized, ParamKeys: []string{}},
 	CodeForbidden:          {HTTPStatus: http.StatusForbidden, ParamKeys: []string{}},
@@ -96,6 +98,14 @@ func InvalidCursor(cursor string) *APIError {
 func InvalidAsOf(value string) *APIError {
 	return New(CodeInvalidAsOf, fmt.Sprintf("invalid as_of %q (want RFC3339)", value),
 		map[string]any{"value": value})
+}
+
+// InvalidLSNRange reports an lsn window whose lower bound exceeds its upper
+// bound (from_lsn > to_lsn).
+func InvalidLSNRange(from, to int64) *APIError {
+	return New(CodeInvalidLSNRange,
+		fmt.Sprintf("invalid lsn range: from_lsn %d is greater than to_lsn %d", from, to),
+		map[string]any{"from": from, "to": to})
 }
 
 // MissingToken reports an absent Authorization header.

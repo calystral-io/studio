@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/calystral-io/studio/internal/apierr"
 	"github.com/calystral-io/studio/internal/coreclient"
 	"github.com/calystral-io/studio/internal/version"
@@ -125,6 +127,151 @@ func (s *Server) handleAnchors(w http.ResponseWriter, r *http.Request) {
 		Page:   res.Page,
 		Source: res.Source,
 	})
+}
+
+// ledgersResponse is the paginated ledger-catalog envelope (contract 10.1).
+type ledgersResponse struct {
+	Items  []coreclient.LedgerSummary `json:"items"`
+	Page   coreclient.Page            `json:"page"`
+	Source string                     `json:"source"`
+}
+
+// handleLedgers validates query params and serves a page of ledgers scoped to
+// the principal's tenant. Requires the reader role.
+func (s *Server) handleLedgers(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	q := r.URL.Query()
+	pageSize, err := parsePageSize(q.Get("page_size"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	res, err := s.core.ListLedgers(r.Context(), coreclient.ListLedgersParams{
+		TenantID:  p.TenantID,
+		PageSize:  pageSize,
+		Cursor:    q.Get("cursor"),
+		Q:         q.Get("q"),
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ledgersResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
+// ledgerEntriesResponse is the paginated ledger-entries envelope (contract 10.2).
+type ledgerEntriesResponse struct {
+	Items  []coreclient.LedgerEntry `json:"items"`
+	Page   coreclient.Page          `json:"page"`
+	Source string                   `json:"source"`
+}
+
+// handleLedgerEntries validates query params and serves a page of one ledger's
+// entries (newest first) scoped to the principal's tenant. Requires the reader
+// role. An unknown ledger name yields 404 not_found ("ledger:<name>").
+func (s *Server) handleLedgerEntries(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	name := chi.URLParam(r, "name")
+	q := r.URL.Query()
+
+	pageSize, err := parsePageSize(q.Get("page_size"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	var asOf *time.Time
+	if raw := q.Get("as_of"); raw != "" {
+		t, perr := time.Parse(time.RFC3339, raw)
+		if perr != nil {
+			apierr.Write(w, reqID, apierr.InvalidAsOf(raw))
+			return
+		}
+		t = t.UTC()
+		asOf = &t
+	}
+
+	fromLSN, toLSN, err := parseLSNBounds(q.Get("from_lsn"), q.Get("to_lsn"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	res, err := s.core.ListLedgerEntries(r.Context(), coreclient.ListLedgerEntriesParams{
+		TenantID:  p.TenantID,
+		Name:      name,
+		PageSize:  pageSize,
+		Cursor:    q.Get("cursor"),
+		Kind:      q.Get("kind"),
+		Q:         q.Get("q"),
+		AsOf:      asOf,
+		FromLSN:   fromLSN,
+		ToLSN:     toLSN,
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ledgerEntriesResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
+// parseLSNBounds resolves the optional from_lsn/to_lsn params. An empty value is
+// an unbounded (nil) side; a non-integer value or an inverted window
+// (from_lsn > to_lsn) is a 400 invalid_lsn_range error.
+func parseLSNBounds(fromRaw, toRaw string) (*int64, *int64, error) {
+	from, err := parseOptionalLSN("from_lsn", fromRaw)
+	if err != nil {
+		return nil, nil, err
+	}
+	to, err := parseOptionalLSN("to_lsn", toRaw)
+	if err != nil {
+		return nil, nil, err
+	}
+	if from != nil && to != nil && *from > *to {
+		return nil, nil, apierr.InvalidLSNRange(*from, *to)
+	}
+	return from, to, nil
+}
+
+// parseOptionalLSN parses one optional lsn bound: empty -> nil; otherwise a
+// signed integer or a 400 invalid_lsn_range error (a malformed bound cannot
+// define a valid window).
+func parseOptionalLSN(name, raw string) (*int64, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		ae := apierr.InvalidLSNRange(0, 0)
+		ae.Message = name + " " + strconv.Quote(raw) + " is not an integer"
+		return nil, ae
+	}
+	return &n, nil
 }
 
 // parsePageSize resolves the page_size param: empty -> default; otherwise an
