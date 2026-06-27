@@ -96,7 +96,7 @@ func InvalidCursor(cursor string) *APIError {
 
 // InvalidAsOf reports a malformed as_of timestamp.
 func InvalidAsOf(value string) *APIError {
-	return New(CodeInvalidAsOf, fmt.Sprintf("invalid as_of %q (want RFC3339)", value),
+	return New(CodeInvalidAsOf, fmt.Sprintf("invalid as_of %q (want RFC3339 or YYYY-MM-DD)", value),
 		map[string]any{"value": value})
 }
 

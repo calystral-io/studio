@@ -95,15 +95,10 @@ func (s *Server) handleAnchors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var asOf *time.Time
-	if raw := q.Get("as_of"); raw != "" {
-		t, perr := time.Parse(time.RFC3339, raw)
-		if perr != nil {
-			apierr.Write(w, reqID, apierr.InvalidAsOf(raw))
-			return
-		}
-		t = t.UTC()
-		asOf = &t
+	asOf, err := parseAsOf(q.Get("as_of"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
 	}
 
 	params := coreclient.ListAnchorsParams{
@@ -203,15 +198,10 @@ func (s *Server) handleLedgerEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var asOf *time.Time
-	if raw := q.Get("as_of"); raw != "" {
-		t, perr := time.Parse(time.RFC3339, raw)
-		if perr != nil {
-			apierr.Write(w, reqID, apierr.InvalidAsOf(raw))
-			return
-		}
-		t = t.UTC()
-		asOf = &t
+	asOf, err := parseAsOf(q.Get("as_of"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
 	}
 
 	fromLSN, toLSN, err := parseLSNBounds(q.Get("from_lsn"), q.Get("to_lsn"))
@@ -619,6 +609,25 @@ func (s *Server) handleMessagingSubscriptions(w http.ResponseWriter, r *http.Req
 	}
 
 	writeJSON(w, http.StatusOK, subscriptionsResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
+// parseAsOf resolves the optional bitemporal valid-time projection shared by the
+// anchors and ledger-entries surfaces. An empty value means no projection (nil).
+// A full RFC3339 instant or a bare YYYY-MM-DD date (projected to start-of-UTC-day)
+// is accepted; anything else is a 400 invalid_as_of error.
+func parseAsOf(raw string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		t = t.UTC()
+		return &t, nil
+	}
+	if t, err := time.Parse(time.DateOnly, raw); err == nil {
+		t = t.UTC()
+		return &t, nil
+	}
+	return nil, apierr.InvalidAsOf(raw)
 }
 
 // parseLSNBounds resolves the optional from_lsn/to_lsn params. An empty value is

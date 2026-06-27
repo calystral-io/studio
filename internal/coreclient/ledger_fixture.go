@@ -128,16 +128,10 @@ func (f *Fixture) ListLedgerEntries(_ context.Context, p ListLedgerEntriesParams
 	return &ListLedgerEntriesResult{Items: items, Page: page, Source: SourceFixture}, nil
 }
 
-// entryValidAt reports whether entry e is valid (business time) at instant t:
-// effective_from <= t and (effective_to is open or t < effective_to).
+// entryValidAt reports whether entry e is valid (business time) at instant t,
+// via the shared half-open interval check over effective_from/effective_to.
 func entryValidAt(e LedgerEntry, t time.Time) bool {
-	if t.Before(e.EffectiveFrom) {
-		return false
-	}
-	if e.EffectiveTo != nil && !t.Before(*e.EffectiveTo) {
-		return false
-	}
-	return true
+	return inInterval(e.EffectiveFrom, e.EffectiveTo, t)
 }
 
 // ledgerMatchesQuery reports whether q occurs in the ledger name or description
