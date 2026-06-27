@@ -1,0 +1,80 @@
+// Vendored from canonical source calystral-io/core/core-api/proto (do not edit by hand; sync via `make proto-sync`).
+syntax = "proto3";
+
+// Stored-procedure registry surface: declare, read, list, and invoke a tenant's
+// named CyQL procedures. A proc is a fn-twin (the compiler emits the same
+// bytecode as a fn); Core owns the per-tenant catalog of declared procs.
+// Declare/read/list round-trip durably and per tenant; invoke dispatch through
+// the cvm executor lands with the execution surface (the same opcode gap that
+// gaps query execute and mutate), so InvokeProc reports UNIMPLEMENTED today
+// rather than faking a result.
+package calystral.core.v1.proc;
+
+option go_package = "github.com/calystral-io/studio/internal/corepb/procpb;procpb";
+
+// Manages tenant stored procedures (named CyQL `proc` declarations).
+service ProcService {
+  // Declare or update a stored procedure for a tenant from its CyQL source.
+  rpc DeclareProc(DeclareProcRequest) returns (DeclareProcResponse);
+  // Read a tenant's stored procedure definition by name.
+  rpc GetProc(GetProcRequest) returns (GetProcResponse);
+  // List the names of a tenant's stored procedures.
+  rpc ListProcs(ListProcsRequest) returns (ListProcsResponse);
+  // Invoke a tenant's stored procedure. Dispatch through the cvm executor lands
+  // with the execution surface; today it reports the gap as UNIMPLEMENTED.
+  rpc InvokeProc(InvokeProcRequest) returns (InvokeProcResponse);
+}
+
+message DeclareProcRequest {
+  // Tenant the proc belongs to. Set by the gateway but ignored - the signed
+  // principal is the trust boundary.
+  string tenant = 1;
+  // CyQL source declaring exactly one `proc`.
+  string definition = 2;
+}
+
+message DeclareProcResponse {
+  // The proc name parsed from the definition.
+  string name = 1;
+  // The version assigned after applying.
+  uint64 version = 2;
+}
+
+message GetProcRequest {
+  // Tenant whose proc is requested.
+  string tenant = 1;
+  // Name of the proc to read.
+  string name = 2;
+}
+
+message GetProcResponse {
+  // The current proc version.
+  uint64 version = 1;
+  // Proc definition source text.
+  string definition = 2;
+}
+
+message ListProcsRequest {
+  // Tenant whose procs are listed.
+  string tenant = 1;
+}
+
+message ListProcsResponse {
+  // The names of the tenant's declared procs, sorted.
+  repeated string names = 1;
+}
+
+message InvokeProcRequest {
+  // Tenant whose proc is invoked.
+  string tenant = 1;
+  // Name of the proc to invoke.
+  string name = 2;
+  // Encoded argument values, in declaration order. The concrete encoding firms
+  // up with the execution surface.
+  repeated bytes args = 3;
+}
+
+message InvokeProcResponse {
+  // Encoded procedure result. Shape firms up with the execution surface.
+  bytes result = 1;
+}
