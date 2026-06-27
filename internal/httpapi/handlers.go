@@ -101,14 +101,21 @@ func (s *Server) handleAnchors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	systemAsOf, err := parseSystemAsOf(q.Get("system_as_of"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
 	params := coreclient.ListAnchorsParams{
-		TenantID:  p.TenantID,
-		PageSize:  pageSize,
-		Cursor:    q.Get("cursor"),
-		Type:      q.Get("type"),
-		Q:         q.Get("q"),
-		AsOf:      asOf,
-		Principal: p,
+		TenantID:   p.TenantID,
+		PageSize:   pageSize,
+		Cursor:     q.Get("cursor"),
+		Type:       q.Get("type"),
+		Q:          q.Get("q"),
+		AsOf:       asOf,
+		SystemAsOf: systemAsOf,
+		Principal:  p,
 	}
 
 	res, err := s.core.ListAnchors(r.Context(), params)
@@ -628,6 +635,26 @@ func parseAsOf(raw string) (*time.Time, error) {
 		return &t, nil
 	}
 	return nil, apierr.InvalidAsOf(raw)
+}
+
+// parseSystemAsOf resolves the optional system-time (transaction-time)
+// projection for the anchors surface. It accepts the same formats as parseAsOf
+// (RFC3339 or a bare YYYY-MM-DD projected to start-of-UTC-day); an empty value
+// means the current view (nil). A malformed value is a 400 invalid_system_as_of
+// error, distinct from invalid_as_of so the UI can point at the right control.
+func parseSystemAsOf(raw string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		t = t.UTC()
+		return &t, nil
+	}
+	if t, err := time.Parse(time.DateOnly, raw); err == nil {
+		t = t.UTC()
+		return &t, nil
+	}
+	return nil, apierr.InvalidSystemAsOf(raw)
 }
 
 // parseLSNBounds resolves the optional from_lsn/to_lsn params. An empty value is

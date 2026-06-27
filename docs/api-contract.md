@@ -46,6 +46,7 @@ Canonical error codes shipped in PR1 (each MUST have an `en` translation):
 | 400 | `/errors/validation/page_size_out_of_range` | `min,max,got` |
 | 400 | `/errors/validation/invalid_cursor` | `cursor` |
 | 400 | `/errors/validation/invalid_as_of` | `value` |
+| 400 | `/errors/validation/invalid_system_as_of` | `value` |
 | 400 | `/errors/validation/invalid_lsn_range` | `from,to` |
 | 401 | `/errors/auth/missing_token` | `{}` |
 | 401 | `/errors/auth/invalid_token` | `{}` |
@@ -161,6 +162,16 @@ Query parameters:
 | `type` | string | (none) | optional filter by node type |
 | `q` | string | (none) | optional case-insensitive substring over `label`+`properties` |
 | `as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional bitemporal valid-time projection (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_as_of` |
+| `system_as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional system-time (transaction-time) projection: the anchor versions the store knew at this instant (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_system_as_of` |
+
+The two time axes are independent and compose (logical AND): `as_of` selects the
+business-time slice, `system_as_of` selects the decision-time slice. With
+`system_as_of` omitted the response is **current-only** - rows whose system
+interval is still open (`system_to=null`), hiding superseded versions. Supplying
+a past `system_as_of` reveals the value as originally recorded, before any later
+correction (a different version of the same `id`). The system axis is
+anchors-only; ledger entries (section 10.2) carry no system-time columns and
+accept only `as_of`.
 
 Cursor pagination (NOT offset): the cursor is an opaque base64url token the BFF
 mints; the UI treats it as an opaque blob. First page omits `cursor`.

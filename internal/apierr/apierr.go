@@ -20,6 +20,7 @@ const (
 	CodePageSizeOutOfRange Code = "/errors/validation/page_size_out_of_range"
 	CodeInvalidCursor      Code = "/errors/validation/invalid_cursor"
 	CodeInvalidAsOf        Code = "/errors/validation/invalid_as_of"
+	CodeInvalidSystemAsOf  Code = "/errors/validation/invalid_system_as_of"
 	CodeInvalidLSNRange    Code = "/errors/validation/invalid_lsn_range"
 	CodeMissingToken       Code = "/errors/auth/missing_token"
 	CodeInvalidToken       Code = "/errors/auth/invalid_token"
@@ -43,6 +44,7 @@ var Registry = map[Code]Descriptor{
 	CodePageSizeOutOfRange: {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"min", "max", "got"}},
 	CodeInvalidCursor:      {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"cursor"}},
 	CodeInvalidAsOf:        {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"value"}},
+	CodeInvalidSystemAsOf:  {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"value"}},
 	CodeInvalidLSNRange:    {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"from", "to"}},
 	CodeMissingToken:       {HTTPStatus: http.StatusUnauthorized, ParamKeys: []string{}},
 	CodeInvalidToken:       {HTTPStatus: http.StatusUnauthorized, ParamKeys: []string{}},
@@ -97,6 +99,12 @@ func InvalidCursor(cursor string) *APIError {
 // InvalidAsOf reports a malformed as_of timestamp.
 func InvalidAsOf(value string) *APIError {
 	return New(CodeInvalidAsOf, fmt.Sprintf("invalid as_of %q (want RFC3339 or YYYY-MM-DD)", value),
+		map[string]any{"value": value})
+}
+
+// InvalidSystemAsOf reports a malformed system_as_of timestamp.
+func InvalidSystemAsOf(value string) *APIError {
+	return New(CodeInvalidSystemAsOf, fmt.Sprintf("invalid system_as_of %q (want RFC3339 or YYYY-MM-DD)", value),
 		map[string]any{"value": value})
 }
 
