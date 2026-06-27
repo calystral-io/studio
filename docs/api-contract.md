@@ -160,7 +160,7 @@ Query parameters:
 | `cursor` | string | (none) | opaque forward cursor from a prior `next_cursor`; invalid -> 400 |
 | `type` | string | (none) | optional filter by node type |
 | `q` | string | (none) | optional case-insensitive substring over `label`+`properties` |
-| `as_of` | RFC3339 | (none) | optional bitemporal valid-time projection; malformed -> 400 |
+| `as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional bitemporal valid-time projection (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_as_of` |
 
 Cursor pagination (NOT offset): the cursor is an opaque base64url token the BFF
 mints; the UI treats it as an opaque blob. First page omits `cursor`.
@@ -378,7 +378,7 @@ Query parameters:
 | `cursor` | string | (none) | opaque forward cursor from a prior `next_cursor`; invalid -> 400 |
 | `kind` | string | (none) | optional filter by entry `kind` |
 | `q` | string | (none) | optional case-insensitive substring over `summary`+`payload` |
-| `as_of` | RFC3339 | (none) | optional bitemporal valid-time projection; malformed -> 400 |
+| `as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional bitemporal valid-time projection (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_as_of` |
 | `from_lsn` | int | (none) | optional lower bound (inclusive) on `lsn` |
 | `to_lsn` | int | (none) | optional upper bound (inclusive) on `lsn`; if `from_lsn > to_lsn` -> 400 `/errors/validation/invalid_lsn_range` |
 

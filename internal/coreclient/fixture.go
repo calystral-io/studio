@@ -126,14 +126,23 @@ func (f *Fixture) ListAnchors(_ context.Context, p ListAnchorsParams) (*ListAnch
 
 // validAt reports whether anchor a is valid (business time) at instant t:
 // valid_from <= t and (valid_to is open or t < valid_to).
-func validAt(a AnchorDTO, t time.Time) bool {
-	if t.Before(a.ValidFrom) {
+// inInterval reports whether t falls in the half-open interval [from, to): t is
+// at or after from and strictly before to. A nil upper bound is open/unbounded.
+// This is the shared bitemporal valid-time projection (anchors valid_from/to and
+// ledger entries effective_from/to).
+func inInterval(from time.Time, to *time.Time, t time.Time) bool {
+	if t.Before(from) {
 		return false
 	}
-	if a.ValidTo != nil && !t.Before(*a.ValidTo) {
+	if to != nil && !t.Before(*to) {
 		return false
 	}
 	return true
+}
+
+// validAt reports whether an anchor's valid-time interval contains t.
+func validAt(a AnchorDTO, t time.Time) bool {
+	return inInterval(a.ValidFrom, a.ValidTo, t)
 }
 
 // matchesQuery reports whether the lowercased q occurs in the label or any
