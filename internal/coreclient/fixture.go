@@ -104,9 +104,6 @@ func matchesQuery(a AnchorDTO, q string) bool {
 	if strings.Contains(strings.ToLower(a.Label), q) {
 		return true
 	}
-	if strings.Contains(strings.ToLower(a.Type), q) {
-		return true
-	}
 	for _, v := range a.Properties {
 		if strings.Contains(strings.ToLower(fmt.Sprint(v)), q) {
 			return true

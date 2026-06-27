@@ -9,6 +9,7 @@ package coreclient
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -142,7 +143,12 @@ func mapCoreError(err error) error {
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
 		return apierr.Unavailable(anchorsSurface)
 	default:
-		return apierr.Internal(fmt.Sprintf("core query: %s", st.Message()))
+		// An unexpected upstream code may carry internal detail in its message;
+		// log it and return a generic envelope so nothing leaks on the wire (the
+		// same non-leaky posture Core takes for its own unmapped status codes).
+		slog.Warn("core query failed with unexpected status",
+			"grpc_code", st.Code().String(), "detail", st.Message())
+		return apierr.Internal("")
 	}
 }
 

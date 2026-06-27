@@ -2,6 +2,7 @@ package coreclient
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -144,6 +145,36 @@ func TestBuildListAnchorsCyQL(t *testing.T) {
 		if !contains(got, want) {
 			t.Errorf("cyql %q missing %q", got, want)
 		}
+	}
+}
+
+func TestMapCoreError(t *testing.T) {
+	cases := []struct {
+		name     string
+		err      error
+		wantCode apierr.Code
+		// secret, when set, must NOT appear in the wire message (no upstream leak).
+		secret string
+	}{
+		{"unimplemented_is_501", status.Error(codes.Unimplemented, "cvm opcode gap"), apierr.CodeUnimplemented, ""},
+		{"unavailable_is_502", status.Error(codes.Unavailable, "core down"), apierr.CodeUnavailable, ""},
+		{"deadline_is_502", status.Error(codes.DeadlineExceeded, "slow"), apierr.CodeUnavailable, ""},
+		{"non_status_is_502", errors.New("raw transport failure"), apierr.CodeUnavailable, ""},
+		{"unexpected_code_does_not_leak", status.Error(codes.PermissionDenied, "secret upstream detail"), apierr.CodeInternal, "secret upstream detail"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var ae *apierr.APIError
+			if !errors.As(mapCoreError(tc.err), &ae) {
+				t.Fatalf("mapCoreError did not return *apierr.APIError")
+			}
+			if ae.Code != tc.wantCode {
+				t.Errorf("code = %q, want %q", ae.Code, tc.wantCode)
+			}
+			if tc.secret != "" && contains(ae.Message, tc.secret) {
+				t.Errorf("wire message %q leaked upstream detail %q", ae.Message, tc.secret)
+			}
+		})
 	}
 }
 
