@@ -29,9 +29,12 @@ const principalMetadataKey = "x-calystral-principal"
 
 // Contract surface tags for upstream errors (params.surface).
 const (
-	anchorsSurface       = "anchors"
-	ledgersSurface       = "ledgers"
-	ledgerEntriesSurface = "ledger_entries"
+	anchorsSurface        = "anchors"
+	ledgersSurface        = "ledgers"
+	ledgerEntriesSurface  = "ledger_entries"
+	clusterSummarySurface = "cluster_summary"
+	clusterNodesSurface   = "cluster_nodes"
+	clusterShardsSurface  = "cluster_shards"
 )
 
 // GRPCClient is the live Core adapter.
@@ -202,6 +205,90 @@ func (c *GRPCClient) ListLedgerEntries(ctx context.Context, p ListLedgerEntriesP
 	return nil, apierr.Unimplemented(ledgerEntriesSurface)
 }
 
+// ClusterSummary mints the principal JWT, issues the cluster-status read, and
+// maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we
+// never fabricate a rollup.
+func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildClusterSummaryCyQL(),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, clusterSummarySurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into ClusterSummary.
+	_ = resp
+	return nil, apierr.Unimplemented(clusterSummarySurface)
+}
+
+// ListNodes mints the principal JWT, issues the list-nodes read, and maps Core's
+// response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
+// fabricate nodes.
+func (c *GRPCClient) ListNodes(ctx context.Context, p ListNodesParams) (*ListNodesResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListNodesCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, clusterNodesSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into NodeDTO.
+	_ = resp
+	return nil, apierr.Unimplemented(clusterNodesSurface)
+}
+
+// ListShards mints the principal JWT, issues the list-shards read, and maps
+// Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
+// fabricate shards.
+func (c *GRPCClient) ListShards(ctx context.Context, p ListShardsParams) (*ListShardsResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListShardsCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, clusterShardsSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into ShardDTO.
+	_ = resp
+	return nil, apierr.Unimplemented(clusterShardsSurface)
+}
+
 // withPrincipal mints the dev principal JWT and appends it as the
 // x-calystral-principal outgoing metadata Core reads.
 func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (context.Context, error) {
@@ -249,6 +336,69 @@ func buildListLedgerEntriesCyQL(p ListLedgerEntriesParams) string {
 		b.WriteString(strings.Join(wheres, " AND "))
 	}
 	b.WriteString(" RETURN e ORDER BY e.lsn DESC")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildClusterSummaryCyQL renders a plausible CyQL read for the cluster-wide
+// status rollup. Core returns UNIMPLEMENTED regardless of the text.
+func buildClusterSummaryCyQL() string {
+	return "MATCH (c:Cluster) RETURN c.summary"
+}
+
+// buildListNodesCyQL renders a plausible CyQL read for the cluster nodes with
+// the requested region/status/q filters. Core returns UNIMPLEMENTED regardless.
+func buildListNodesCyQL(p ListNodesParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (n:ClusterNode)")
+	var wheres []string
+	if p.Region != "" {
+		wheres = append(wheres, fmt.Sprintf("n.region = %q", p.Region))
+	}
+	if p.Status != "" {
+		wheres = append(wheres, fmt.Sprintf("n.status = %q", p.Status))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("n CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN n ORDER BY n.id")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildListShardsCyQL renders a plausible CyQL read for the cluster shards with
+// the requested region/status/node/q filters. Core returns UNIMPLEMENTED
+// regardless of the text.
+func buildListShardsCyQL(p ListShardsParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (s:Shard)")
+	var wheres []string
+	if p.Region != "" {
+		wheres = append(wheres, fmt.Sprintf("s.region = %q", p.Region))
+	}
+	if p.Status != "" {
+		wheres = append(wheres, fmt.Sprintf("s.status = %q", p.Status))
+	}
+	if p.Node != "" {
+		// Contract `node` semantics are leader-OR-replica. This relies on the
+		// invariant that a shard's leader is always a member of its replica set
+		// (see ShardDTO docs), so replica membership alone is sufficient. If a
+		// future Core ever stores the leader outside replica_node_ids, widen this
+		// to also match s.leader_node_id.
+		wheres = append(wheres, fmt.Sprintf("%q IN s.replica_node_ids", p.Node))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("s CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN s ORDER BY s.id")
 	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
 	return b.String()
 }
