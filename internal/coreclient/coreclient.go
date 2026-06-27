@@ -1,9 +1,9 @@
 // Package coreclient is the BFF's port to Core's read path. It exposes a
-// CoreClient interface for listing node anchors with cursor pagination and
-// filters, plus two implementations selected by STUDIO_CORE_SOURCE: a seeded
-// in-memory fixture (PR1 default) and a gRPC adapter against Core's
-// QueryService (which returns UNIMPLEMENTED today). The AnchorDTO is identical
-// regardless of source so the UI renders both the same.
+// CoreClient interface for listing node anchors and bitemporal ledger entries
+// with cursor pagination and filters, plus two implementations selected by
+// STUDIO_CORE_SOURCE: a seeded in-memory fixture (default) and a gRPC adapter
+// against Core's QueryService (which returns UNIMPLEMENTED today). The DTOs are
+// identical regardless of source so the UI renders both the same.
 package coreclient
 
 import (
@@ -76,10 +76,84 @@ type ListAnchorsResult struct {
 	Source string
 }
 
+// LedgerSummary is a catalog entry describing one ledger (contract section 9.1).
+type LedgerSummary struct {
+	Name               string    `json:"name"`
+	Kind               string    `json:"kind"`
+	Description        string    `json:"description"`
+	EntryCountEstimate int       `json:"entry_count_estimate"`
+	LastLSN            int64     `json:"last_lsn"`
+	LastRecordedAt     time.Time `json:"last_recorded_at"`
+}
+
+// LedgerEntry is one append-only, bitemporal ledger entry (contract section
+// 9.2). Times are UTC; a nil *time.Time marshals to JSON null per the "open"
+// (EffectiveTo) / "first" (PrevLSN) conventions.
+type LedgerEntry struct {
+	ID            string         `json:"id"`
+	Ledger        string         `json:"ledger"`
+	Seq           int64          `json:"seq"`
+	LSN           int64          `json:"lsn"`
+	TxnID         int64          `json:"txn_id"`
+	Kind          string         `json:"kind"`
+	Summary       string         `json:"summary"`
+	Actor         string         `json:"actor"`
+	AnchorID      *string        `json:"anchor_id"`
+	RecordedAt    time.Time      `json:"recorded_at"`
+	EffectiveFrom time.Time      `json:"effective_from"`
+	EffectiveTo   *time.Time     `json:"effective_to"`
+	PrevLSN       *int64         `json:"prev_lsn"`
+	Payload       map[string]any `json:"payload"`
+}
+
+// ListLedgersParams carries the validated inputs for the ledger catalog list.
+type ListLedgersParams struct {
+	TenantID string
+	PageSize int
+	Cursor   string
+	Q        string
+	// Principal is the resolved caller; the gRPC adapter mints the
+	// x-calystral-principal JWT from it, the fixture only needs TenantID.
+	Principal *auth.Principal
+}
+
+// ListLedgersResult is one page of ledger summaries plus the source tag.
+type ListLedgersResult struct {
+	Items  []LedgerSummary
+	Page   Page
+	Source string
+}
+
+// ListLedgerEntriesParams carries the validated inputs for a ledger's entry
+// listing. FromLSN/ToLSN are inclusive bounds (nil => unbounded); when both are
+// set, the caller has already enforced FromLSN <= ToLSN.
+type ListLedgerEntriesParams struct {
+	TenantID  string
+	Name      string
+	PageSize  int
+	Cursor    string
+	Kind      string
+	Q         string
+	AsOf      *time.Time
+	FromLSN   *int64
+	ToLSN     *int64
+	Principal *auth.Principal
+}
+
+// ListLedgerEntriesResult is one page of ledger entries (descending lsn) plus
+// the source tag.
+type ListLedgerEntriesResult struct {
+	Items  []LedgerEntry
+	Page   Page
+	Source string
+}
+
 // CoreClient is the read-path port. CheckCore reports the readiness status the
 // /readyz endpoint surfaces.
 type CoreClient interface {
 	ListAnchors(ctx context.Context, p ListAnchorsParams) (*ListAnchorsResult, error)
+	ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error)
+	ListLedgerEntries(ctx context.Context, p ListLedgerEntriesParams) (*ListLedgerEntriesResult, error)
 	CheckCore(ctx context.Context) string
 	Source() string
 	Close() error

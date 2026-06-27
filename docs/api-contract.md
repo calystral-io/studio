@@ -1,4 +1,4 @@
-# Calystral Studio - BFF <-> UI API Contract (PR1)
+# Calystral Studio - BFF <-> UI API Contract (PR1 + PR2)
 
 Canonical seam between `calystral-io/studio` (Go BFF) and `calystral-io/studio-ui`
 (React). The BFF OWNS this contract; the UI consumes it. This file is committed
@@ -46,6 +46,7 @@ Canonical error codes shipped in PR1 (each MUST have an `en` translation):
 | 400 | `/errors/validation/page_size_out_of_range` | `min,max,got` |
 | 400 | `/errors/validation/invalid_cursor` | `cursor` |
 | 400 | `/errors/validation/invalid_as_of` | `value` |
+| 400 | `/errors/validation/invalid_lsn_range` | `from,to` |
 | 401 | `/errors/auth/missing_token` | `{}` |
 | 401 | `/errors/auth/invalid_token` | `{}` |
 | 403 | `/errors/auth/forbidden` | `{}` |
@@ -246,4 +247,133 @@ honors `STUDIO_CORS_ORIGINS` (comma list) for non-proxy setups, defaulting to
 
 CLI (cobra): `studio serve` (run the HTTP server), `studio version`. Flags mirror
 env vars; env wins per 12-factor unless flag explicitly set.
+
+## 9. Ledger DTOs (PR2)
+
+A ledger is a named, append-only, bitemporal entry log in the tenant catalog
+(e.g. `GeneralLedger`). Like anchors, the DTO is the SAME whether sourced from the
+BFF fixture (PR2 default) or, later, decoded from Core's cybr rows; today Core's
+read path returns 501, so the default data source is the fixture.
+
+### 9.1 LedgerSummary
+
+A catalog entry describing one ledger (returned by the list endpoint).
+
+```json
+{
+  "name": "GeneralLedger",
+  "kind": "accounting",
+  "description": "Double-entry accounting postings for the demo tenant",
+  "entry_count_estimate": 120,
+  "last_lsn": 7359,
+  "last_recorded_at": "2026-06-15T20:51:00Z"
+}
+```
+
+- `name` string, opaque, path-safe, stable, sortable (also the `{name}` path segment).
+- `kind` free string describing the ledger's nature (e.g. `accounting|audit|event`).
+- `description` human-readable summary.
+- `entry_count_estimate` int: best-effort entry count for UI display; may be approximate.
+- `last_lsn` int: the global LSN of the most recent entry in this ledger.
+- `last_recorded_at` RFC3339: system time of that most recent entry.
+
+### 9.2 LedgerEntry
+
+One append-only, bitemporal entry in a ledger.
+
+```json
+{
+  "id": "entry_0007001",
+  "ledger": "GeneralLedger",
+  "seq": 1,
+  "lsn": 7001,
+  "txn_id": 7001,
+  "kind": "posting",
+  "summary": "Posting #1 to account 4000-Revenue",
+  "actor": "admin@demo",
+  "anchor_id": "anchor_employee_0003",
+  "recorded_at": "2026-01-02T08:00:00Z",
+  "effective_from": "2026-01-04T00:00:00Z",
+  "effective_to": null,
+  "prev_lsn": null,
+  "payload": { "account": "4000-Revenue", "amount": 1250, "currency": "EUR" }
+}
+```
+
+- `id` string, opaque, stable, unique.
+- `ledger` string: the owning ledger `name`.
+- `seq` int: per-ledger monotonic sequence (1-based, append order within the ledger).
+- `lsn` int: global system order across all ledgers (strictly increasing append order).
+- `txn_id` int: the originating transaction id.
+- `kind` string: entry classification (filterable; e.g. `posting|reversal|login|created`).
+- `summary` human-readable one-line description.
+- `actor` string: the principal `user_id` that appended the entry.
+- `anchor_id` string|null: optional reference to a related node anchor.
+- `recorded_at` RFC3339: system (decision/transaction) time the entry was appended.
+- Bitemporal valid time: `effective_from`/`effective_to` (business time;
+  `effective_to=null` => still in effect / open).
+- `prev_lsn` int|null: the LSN of the previous entry in THIS ledger - the append-chain
+  link. `null` for the first entry of a ledger.
+- `payload` object: string->scalar (string|number|boolean|null), entry-specific data.
+
+## 10. Ledger endpoints (PR2)
+
+### 10.1 GET /api/v1/ledgers (paginated ledger catalog)
+
+Lists the tenant's ledgers. Auth: requires `reader`. Results scoped to the
+principal's `tenant_id`.
+
+Query parameters:
+
+| param | type | default | notes |
+|---|---|---|---|
+| `page_size` | int | 25 | 1..200 inclusive; out of range -> 400 |
+| `cursor` | string | (none) | opaque forward cursor from a prior `next_cursor`; invalid -> 400 |
+| `q` | string | (none) | optional case-insensitive substring over `name`+`description` |
+
+Response 200 (same envelope as anchors):
+```json
+{
+  "items": [ /* LedgerSummary ... */ ],
+  "page": { "page_size": 25, "next_cursor": null, "has_more": false, "total_estimate": 3 },
+  "source": "fixture"
+}
+```
+
+### 10.2 GET /api/v1/ledgers/{name}/entries (paginated ledger entries)
+
+Lists the entries of one ledger, NEWEST FIRST (descending `lsn`). Auth: requires
+`reader`. Results scoped to the principal's `tenant_id`. An unknown `{name}` ->
+404 `/errors/not_found` with `params.resource = "ledger:<name>"`.
+
+Query parameters:
+
+| param | type | default | notes |
+|---|---|---|---|
+| `page_size` | int | 25 | 1..200 inclusive; out of range -> 400 |
+| `cursor` | string | (none) | opaque forward cursor from a prior `next_cursor`; invalid -> 400 |
+| `kind` | string | (none) | optional filter by entry `kind` |
+| `q` | string | (none) | optional case-insensitive substring over `summary`+`payload` |
+| `as_of` | RFC3339 | (none) | optional bitemporal valid-time projection; malformed -> 400 |
+| `from_lsn` | int | (none) | optional lower bound (inclusive) on `lsn` |
+| `to_lsn` | int | (none) | optional upper bound (inclusive) on `lsn`; if `from_lsn > to_lsn` -> 400 `/errors/validation/invalid_lsn_range` |
+
+Entries are returned in DESCENDING `lsn` order (newest first). The cursor is an
+opaque, stable base64url token; the walk never duplicates or skips an entry.
+
+Response 200 (same `{items,page,source}` envelope):
+```json
+{
+  "items": [ /* LedgerEntry ... (descending lsn) */ ],
+  "page": { "page_size": 25, "next_cursor": "eyJvIjoyNX0", "has_more": true, "total_estimate": 120 },
+  "source": "fixture"
+}
+```
+
+Behavior when `STUDIO_CORE_SOURCE=grpc` and Core returns UNIMPLEMENTED (the honest
+gap today): the BFF returns 501 `/errors/upstream/unimplemented` with
+`params.surface="ledgers"` for the list and `params.surface="ledger_entries"` for
+the entries endpoint. We never fabricate rows. (PR2 default is `fixture`, so the
+happy path shows real paginated data; the 501 path is covered by integration tests
+against a stub Core.)
 </content>

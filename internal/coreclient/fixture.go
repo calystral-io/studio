@@ -12,17 +12,22 @@ import (
 	"time"
 )
 
-// Fixture is the in-memory anchor source.
+// Fixture is the in-memory anchor and ledger source.
 type Fixture struct {
 	anchors []AnchorDTO
+	// ledgers is the catalog in stable name order; entries maps each ledger
+	// name to its entries in ascending lsn (append) order.
+	ledgers []LedgerSummary
+	entries map[string][]LedgerEntry
 }
 
 // FixtureTenant is the tenant the seeded fixture data belongs to.
 const FixtureTenant = "demo-tenant"
 
-// NewFixture builds a Fixture with the seeded anchor set.
+// NewFixture builds a Fixture with the seeded anchor and ledger sets.
 func NewFixture() *Fixture {
-	return &Fixture{anchors: seedAnchors()}
+	ledgers, entries := seedLedgers()
+	return &Fixture{anchors: seedAnchors(), ledgers: ledgers, entries: entries}
 }
 
 // Source implements CoreClient.
