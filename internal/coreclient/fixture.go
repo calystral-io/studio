@@ -12,22 +12,35 @@ import (
 	"time"
 )
 
-// Fixture is the in-memory anchor and ledger source.
+// Fixture is the in-memory anchor, ledger, and cluster source.
 type Fixture struct {
 	anchors []AnchorDTO
 	// ledgers is the catalog in stable name order; entries maps each ledger
 	// name to its entries in ascending lsn (append) order.
 	ledgers []LedgerSummary
 	entries map[string][]LedgerEntry
+	// nodes and shards are the live cluster topology in stable id order; summary
+	// is the rollup derived from them so the three stay mutually consistent.
+	nodes   []NodeDTO
+	shards  []ShardDTO
+	summary ClusterSummary
 }
 
 // FixtureTenant is the tenant the seeded fixture data belongs to.
 const FixtureTenant = "demo-tenant"
 
-// NewFixture builds a Fixture with the seeded anchor and ledger sets.
+// NewFixture builds a Fixture with the seeded anchor, ledger, and cluster sets.
 func NewFixture() *Fixture {
 	ledgers, entries := seedLedgers()
-	return &Fixture{anchors: seedAnchors(), ledgers: ledgers, entries: entries}
+	nodes, shards, summary := seedCluster()
+	return &Fixture{
+		anchors: seedAnchors(),
+		ledgers: ledgers,
+		entries: entries,
+		nodes:   nodes,
+		shards:  shards,
+		summary: summary,
+	}
 }
 
 // Source implements CoreClient.

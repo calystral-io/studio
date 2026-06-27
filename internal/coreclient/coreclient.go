@@ -148,12 +148,149 @@ type ListLedgerEntriesResult struct {
 	Source string
 }
 
+// --- Cluster / shards (contract sections 11/12) ----------------------------
+//
+// The cluster view is an OPERATOR observability surface over the cvm cluster
+// (per-shard Raft groups, key-range sharding, replicas across regions, storage
+// tiers). Unlike anchors and ledgers it is LIVE state, NOT bitemporal: each DTO
+// carries an `observed_at` snapshot instant and no valid/system time.
+
+// ShardHealthCounts is the per-status shard tally on a ClusterSummary. All three
+// keys are always present (zero when none).
+type ShardHealthCounts struct {
+	Healthy         int `json:"healthy"`
+	Degraded        int `json:"degraded"`
+	UnderReplicated int `json:"under_replicated"`
+}
+
+// RegionSummary is the per-region rollup carried on a ClusterSummary.
+type RegionSummary struct {
+	Name       string `json:"name"`
+	NodeCount  int    `json:"node_count"`
+	ShardCount int    `json:"shard_count"`
+	Health     string `json:"health"`
+}
+
+// ClusterSummary is the cluster-wide observability rollup (contract section 11).
+// Health is "healthy" or "degraded"; it is derived from the shard health tally
+// and node status (any non-healthy shard or any non-"up" node => "degraded").
+type ClusterSummary struct {
+	NodeCount         int               `json:"node_count"`
+	ShardCount        int               `json:"shard_count"`
+	RegionCount       int               `json:"region_count"`
+	ReplicationFactor int               `json:"replication_factor"`
+	Health            string            `json:"health"`
+	ShardHealth       ShardHealthCounts `json:"shard_health"`
+	Regions           []RegionSummary   `json:"regions"`
+	ObservedAt        time.Time         `json:"observed_at"`
+}
+
+// NodeDTO is one cvm cluster node as the operator UI renders it (contract
+// section 11). Times are UTC.
+type NodeDTO struct {
+	ID            string    `json:"id"`
+	Address       string    `json:"address"`
+	Region        string    `json:"region"`
+	Status        string    `json:"status"`
+	ShardCount    int       `json:"shard_count"`
+	LeaderCount   int       `json:"leader_count"`
+	RaftTerm      int       `json:"raft_term"`
+	UsedBytes     int64     `json:"used_bytes"`
+	CapacityBytes int64     `json:"capacity_bytes"`
+	Version       string    `json:"version"`
+	LastHeartbeat time.Time `json:"last_heartbeat"`
+}
+
+// KeyRange is a shard's half-open key span [start, end). A nil *string End is an
+// unbounded upper edge (the final shard), marshaled to JSON null.
+type KeyRange struct {
+	Start string  `json:"start"`
+	End   *string `json:"end"`
+}
+
+// ShardDTO is one Raft-group shard as the operator UI renders it (contract
+// section 12). Lag is commit_index-applied_index and is always >= 0. Times are
+// UTC. ReplicaNodeIDs is the full replica set (including the leader); it is
+// shorter than ReplicationFactor exactly when the shard is under_replicated.
+type ShardDTO struct {
+	ID                string    `json:"id"`
+	RaftGroupID       string    `json:"raft_group_id"`
+	KeyRange          KeyRange  `json:"key_range"`
+	Region            string    `json:"region"`
+	LeaderNodeID      string    `json:"leader_node_id"`
+	ReplicaNodeIDs    []string  `json:"replica_node_ids"`
+	ReplicationFactor int       `json:"replication_factor"`
+	Status            string    `json:"status"`
+	RaftTerm          int       `json:"raft_term"`
+	CommitIndex       int64     `json:"commit_index"`
+	AppliedIndex      int64     `json:"applied_index"`
+	Lag               int64     `json:"lag"`
+	SizeBytes         int64     `json:"size_bytes"`
+	Tier              string    `json:"tier"`
+	ObservedAt        time.Time `json:"observed_at"`
+}
+
+// ClusterSummaryParams carries the validated inputs for the cluster rollup. The
+// cluster is shared operator infrastructure, so it is not tenant-scoped; the
+// Principal is still carried so the gRPC adapter can mint the principal JWT.
+type ClusterSummaryParams struct {
+	TenantID  string
+	Principal *auth.Principal
+}
+
+// ClusterSummaryResult is the cluster rollup plus the source tag.
+type ClusterSummaryResult struct {
+	Summary ClusterSummary
+	Source  string
+}
+
+// ListNodesParams carries the validated inputs for the node listing.
+type ListNodesParams struct {
+	TenantID  string
+	PageSize  int
+	Cursor    string
+	Region    string
+	Status    string
+	Q         string
+	Principal *auth.Principal
+}
+
+// ListNodesResult is one page of nodes (id asc) plus the source tag.
+type ListNodesResult struct {
+	Items  []NodeDTO
+	Page   Page
+	Source string
+}
+
+// ListShardsParams carries the validated inputs for the shard listing. Node, if
+// set, matches shards where it is the leader OR appears in the replica set.
+type ListShardsParams struct {
+	TenantID  string
+	PageSize  int
+	Cursor    string
+	Region    string
+	Status    string
+	Node      string
+	Q         string
+	Principal *auth.Principal
+}
+
+// ListShardsResult is one page of shards (id asc) plus the source tag.
+type ListShardsResult struct {
+	Items  []ShardDTO
+	Page   Page
+	Source string
+}
+
 // CoreClient is the read-path port. CheckCore reports the readiness status the
 // /readyz endpoint surfaces.
 type CoreClient interface {
 	ListAnchors(ctx context.Context, p ListAnchorsParams) (*ListAnchorsResult, error)
 	ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error)
 	ListLedgerEntries(ctx context.Context, p ListLedgerEntriesParams) (*ListLedgerEntriesResult, error)
+	ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error)
+	ListNodes(ctx context.Context, p ListNodesParams) (*ListNodesResult, error)
+	ListShards(ctx context.Context, p ListShardsParams) (*ListShardsResult, error)
 	CheckCore(ctx context.Context) string
 	Source() string
 	Close() error
