@@ -5,9 +5,11 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -16,9 +18,16 @@ import (
 	"github.com/calystral-io/studio/internal/coreclient"
 )
 
+// defaultWSSnapshotInterval is how often a subscribed WebSocket topic re-pushes a
+// fresh summary snapshot when Options.WSSnapshotInterval is unset.
+const defaultWSSnapshotInterval = 2 * time.Second
+
 // Options carries edge configuration not owned by a dependency.
 type Options struct {
 	CORSOrigins []string
+	// WSSnapshotInterval is the cadence at which subscribed WebSocket topics push
+	// a fresh snapshot. Zero uses defaultWSSnapshotInterval.
+	WSSnapshotInterval time.Duration
 }
 
 // Server wires the BFF dependencies into an http.Handler.
@@ -28,6 +37,12 @@ type Server struct {
 	logger         *slog.Logger
 	originPatterns []string
 	handler        http.Handler
+	// wsSnapshotInterval is the per-topic push cadence for live WebSocket streams.
+	wsSnapshotInterval time.Duration
+	// baseCtx is cancelled by Close so long-lived WebSocket push loops drain on
+	// server shutdown rather than blocking until the client disconnects.
+	baseCtx context.Context
+	cancel  context.CancelFunc
 }
 
 // New builds a Server and its routed handler from injected dependencies.
@@ -35,10 +50,27 @@ func New(authn auth.Authenticator, core coreclient.CoreClient, logger *slog.Logg
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{auth: authn, core: core, logger: logger, originPatterns: originPatterns(opts.CORSOrigins)}
+	interval := opts.WSSnapshotInterval
+	if interval <= 0 {
+		interval = defaultWSSnapshotInterval
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Server{
+		auth:               authn,
+		core:               core,
+		logger:             logger,
+		originPatterns:     originPatterns(opts.CORSOrigins),
+		wsSnapshotInterval: interval,
+		baseCtx:            ctx,
+		cancel:             cancel,
+	}
 	s.handler = s.routes(opts)
 	return s
 }
+
+// Close cancels the server base context, signalling live WebSocket push loops to
+// finish so a graceful shutdown does not block on idle long-lived connections.
+func (s *Server) Close() { s.cancel() }
 
 // originPatterns maps allowed CORS origins to host patterns for the WebSocket
 // same-origin check (the scheme is stripped; coder/websocket matches on host).
