@@ -272,7 +272,7 @@ func seedLedgers() ([]LedgerSummary, map[string][]LedgerEntry) {
 			}
 		default: // DomainEvents
 			subj := subjects[i%len(subjects)]
-			e.Summary = fmt.Sprintf("%s %s %d %s", subj, "#", seq, entryKind)
+			e.Summary = fmt.Sprintf("%s #%d %s", subj, seq, entryKind)
 			e.Payload = map[string]any{
 				"subject":    subj,
 				"version":    int(seq),
