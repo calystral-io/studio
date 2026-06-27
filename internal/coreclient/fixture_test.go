@@ -341,3 +341,119 @@ func TestFixtureCursorBeyondEnd(t *testing.T) {
 		t.Fatalf("expected empty terminal page, got %d items has_more=%v", len(res.Items), res.Page.HasMore)
 	}
 }
+
+func assertNotFound(t *testing.T, err error) {
+	t.Helper()
+	ae, ok := err.(*apierr.APIError)
+	if !ok || ae.Code != apierr.CodeNotFound {
+		t.Fatalf("err = %v, want not_found", err)
+	}
+}
+
+func TestFixtureAnchorHistory(t *testing.T) {
+	f := NewFixture()
+
+	// employee_0018 was corrected: a prior open version (old title) plus a
+	// current closed version (corrected title) — two system-versions of one id.
+	res, err := f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "anchor_employee_0018"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Versions) != 2 {
+		t.Fatalf("history versions = %d, want 2", len(res.Versions))
+	}
+	// Ordered (valid_from, system_from) ascending: the superseded prior first.
+	if res.Versions[0].SystemTo == nil {
+		t.Error("first version should be the superseded (system_to != nil) prior")
+	}
+	if res.Versions[1].SystemTo != nil {
+		t.Error("second version should be the current (system_to == nil)")
+	}
+	if !res.Versions[1].Closed || res.Versions[1].ValidTo == nil {
+		t.Error("current version should be closed with a bounded valid window")
+	}
+
+	// Unknown id -> 404.
+	_, err = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "anchor_nope"})
+	assertNotFound(t, err)
+
+	// Foreign tenant -> 404 (no cross-tenant existence leak).
+	_, err = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: "other-tenant", ID: "anchor_employee_0018"})
+	assertNotFound(t, err)
+}
+
+func TestFixtureAnchorDiff(t *testing.T) {
+	f := NewFixture()
+	may1, _ := time.Parse(time.RFC3339, "2026-05-01T00:00:00Z")
+	jun19, _ := time.Parse(time.RFC3339, "2026-06-19T00:00:00Z")
+	y2020, _ := time.Parse(time.RFC3339, "2020-01-01T00:00:00Z")
+
+	// from = pre-correction (system 2026-06-19), to = current (system open), both
+	// at the same valid instant: the system-time correction is visible.
+	res, err := f.GetAnchorDiff(ctx(), GetAnchorDiffParams{
+		TenantID: FixtureTenant, ID: "anchor_employee_0018",
+		FromValidAt: may1, FromSystemAt: &jun19,
+		ToValidAt: may1, ToSystemAt: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FromVersion == nil || res.ToVersion == nil {
+		t.Fatalf("expected both versions resolved, got from=%v to=%v", res.FromVersion, res.ToVersion)
+	}
+	if res.FromVersion.SystemTo == nil {
+		t.Error("from should be the superseded (pre-correction) version")
+	}
+	if !res.ToVersion.Closed {
+		t.Error("to should be the current closed version")
+	}
+
+	// A valid coordinate before the anchor existed resolves to no version.
+	res2, err := f.GetAnchorDiff(ctx(), GetAnchorDiffParams{
+		TenantID: FixtureTenant, ID: "anchor_employee_0018",
+		FromValidAt: y2020, FromSystemAt: nil,
+		ToValidAt: may1, ToSystemAt: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.FromVersion != nil {
+		t.Error("from at 2020 should resolve to no version")
+	}
+	if res2.ToVersion == nil {
+		t.Error("to at 2026-05-01 should resolve to the current version")
+	}
+
+	// Unknown id -> 404.
+	_, err = f.GetAnchorDiff(ctx(), GetAnchorDiffParams{TenantID: FixtureTenant, ID: "anchor_nope", FromValidAt: may1, ToValidAt: may1})
+	assertNotFound(t, err)
+}
+
+// TestFixtureVersionRectanglesNonOverlapping enforces the bitemporal invariant
+// that, per id, the version rectangles [valid] x [system] are pairwise
+// disjoint, so any (valid, system) coordinate resolves to at most one version.
+func TestFixtureVersionRectanglesNonOverlapping(t *testing.T) {
+	f := NewFixture()
+	byID := map[string][]AnchorDTO{}
+	for _, a := range f.anchors {
+		byID[a.ID] = append(byID[a.ID], a)
+	}
+	for id, vs := range byID {
+		for i := 0; i < len(vs); i++ {
+			for j := i + 1; j < len(vs); j++ {
+				if intervalsOverlap(vs[i].ValidFrom, vs[i].ValidTo, vs[j].ValidFrom, vs[j].ValidTo) &&
+					intervalsOverlap(vs[i].SystemFrom, vs[i].SystemTo, vs[j].SystemFrom, vs[j].SystemTo) {
+					t.Errorf("anchor %s has overlapping version rectangles (%d,%d)", id, i, j)
+				}
+			}
+		}
+	}
+}
+
+// intervalsOverlap reports whether two half-open [from,to) intervals share any
+// instant (a nil upper bound is open/unbounded).
+func intervalsOverlap(aFrom time.Time, aTo *time.Time, bFrom time.Time, bTo *time.Time) bool {
+	left := aTo == nil || bFrom.Before(*aTo)
+	right := bTo == nil || aFrom.Before(*bTo)
+	return left && right
+}

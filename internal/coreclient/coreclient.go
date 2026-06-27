@@ -587,10 +587,50 @@ type ListSubscriptionsResult struct {
 	Source string
 }
 
+// GetAnchorHistoryParams identifies a single anchor whose full bitemporal
+// version set is requested, tenant-scoped to the principal.
+type GetAnchorHistoryParams struct {
+	TenantID  string
+	ID        string
+	Principal *auth.Principal
+}
+
+// GetAnchorHistoryResult is every stored version of one anchor id (all valid-
+// and system-time versions), ordered deterministically, plus the source tag.
+type GetAnchorHistoryResult struct {
+	Versions []AnchorDTO
+	Source   string
+}
+
+// GetAnchorDiffParams resolves one anchor at two bitemporal coordinates. Each
+// coordinate is a (valid-time, system-time) pair; a nil system instant selects
+// the current/open version. The handler applies defaults (omitted valid axis =
+// now) before calling.
+type GetAnchorDiffParams struct {
+	TenantID     string
+	ID           string
+	FromValidAt  time.Time
+	FromSystemAt *time.Time
+	ToValidAt    time.Time
+	ToSystemAt   *time.Time
+	Principal    *auth.Principal
+}
+
+// GetAnchorDiffResult is the anchor version resolved at each coordinate (nil
+// when no version exists there) plus the source tag. The field-level delta is
+// computed in the httpapi layer.
+type GetAnchorDiffResult struct {
+	FromVersion *AnchorDTO
+	ToVersion   *AnchorDTO
+	Source      string
+}
+
 // CoreClient is the read-path port. CheckCore reports the readiness status the
 // /readyz endpoint surfaces.
 type CoreClient interface {
 	ListAnchors(ctx context.Context, p ListAnchorsParams) (*ListAnchorsResult, error)
+	GetAnchorHistory(ctx context.Context, p GetAnchorHistoryParams) (*GetAnchorHistoryResult, error)
+	GetAnchorDiff(ctx context.Context, p GetAnchorDiffParams) (*GetAnchorDiffResult, error)
 	ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error)
 	ListLedgerEntries(ctx context.Context, p ListLedgerEntriesParams) (*ListLedgerEntriesResult, error)
 	ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error)

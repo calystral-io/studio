@@ -128,6 +128,8 @@ func (s *Server) routes(opts Options) http.Handler {
 			r.Use(authMiddleware(s.auth))
 			r.Get("/me", s.handleMe)
 			r.Get("/anchors", s.handleAnchors)
+			r.Get("/anchors/{id}/history", s.handleAnchorHistory)
+			r.Get("/anchors/{id}/diff", s.handleAnchorDiff)
 			r.Get("/ledgers", s.handleLedgers)
 			r.Get("/ledgers/{name}/entries", s.handleLedgerEntries)
 			r.Get("/cluster", s.handleClusterSummary)

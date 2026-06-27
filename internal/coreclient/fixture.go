@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/calystral-io/studio/internal/apierr"
 )
 
 // Fixture is the in-memory anchor, ledger, and cluster source.
@@ -133,6 +135,75 @@ func (f *Fixture) ListAnchors(_ context.Context, p ListAnchorsParams) (*ListAnch
 	}
 
 	return &ListAnchorsResult{Items: items, Page: page, Source: SourceFixture}, nil
+}
+
+// GetAnchorHistory returns every stored version of one anchor id within the
+// principal's tenant, ordered by (valid_from, system_from, lsn) ascending for a
+// stable timeline. A 404 is returned when the id has no versions in the tenant.
+func (f *Fixture) GetAnchorHistory(_ context.Context, p GetAnchorHistoryParams) (*GetAnchorHistoryResult, error) {
+	versions := f.versionsOf(p.TenantID, p.ID)
+	if len(versions) == 0 {
+		return nil, apierr.NotFound("anchor:" + p.ID)
+	}
+	return &GetAnchorHistoryResult{Versions: versions, Source: SourceFixture}, nil
+}
+
+// GetAnchorDiff resolves one anchor at two bitemporal coordinates and returns
+// the version at each (nil when no version exists at that coordinate). A 404 is
+// returned only when the id has no versions at all in the tenant.
+func (f *Fixture) GetAnchorDiff(_ context.Context, p GetAnchorDiffParams) (*GetAnchorDiffResult, error) {
+	versions := f.versionsOf(p.TenantID, p.ID)
+	if len(versions) == 0 {
+		return nil, apierr.NotFound("anchor:" + p.ID)
+	}
+	return &GetAnchorDiffResult{
+		FromVersion: resolveVersion(versions, p.FromValidAt, p.FromSystemAt),
+		ToVersion:   resolveVersion(versions, p.ToValidAt, p.ToSystemAt),
+		Source:      SourceFixture,
+	}, nil
+}
+
+// versionsOf returns all stored versions of id within tenant, ordered by
+// (valid_from, system_from, lsn) ascending.
+func (f *Fixture) versionsOf(tenant, id string) []AnchorDTO {
+	var vs []AnchorDTO
+	for _, a := range f.anchors {
+		if a.TenantID == tenant && a.ID == id {
+			vs = append(vs, a)
+		}
+	}
+	sort.Slice(vs, func(i, j int) bool {
+		if !vs[i].ValidFrom.Equal(vs[j].ValidFrom) {
+			return vs[i].ValidFrom.Before(vs[j].ValidFrom)
+		}
+		if !vs[i].SystemFrom.Equal(vs[j].SystemFrom) {
+			return vs[i].SystemFrom.Before(vs[j].SystemFrom)
+		}
+		return vs[i].LSN < vs[j].LSN
+	})
+	return vs
+}
+
+// resolveVersion returns the single version whose valid interval contains vt and
+// whose system interval contains tt (a nil tt selects the current/open version,
+// system_to == nil), or nil when none matches. Version rectangles are kept
+// non-overlapping, so at most one matches.
+func resolveVersion(versions []AnchorDTO, vt time.Time, tt *time.Time) *AnchorDTO {
+	for i := range versions {
+		if !validAt(versions[i], vt) {
+			continue
+		}
+		if tt == nil {
+			if versions[i].SystemTo != nil {
+				continue
+			}
+		} else if !systemAt(versions[i], *tt) {
+			continue
+		}
+		v := versions[i]
+		return &v
+	}
+	return nil
 }
 
 // inInterval reports whether t falls in the half-open interval [from, to): t is
@@ -275,6 +346,23 @@ func seedAnchors() []AnchorDTO {
 			vt := vf.AddDate(0, 2, 0)
 			a.ValidTo = tp(vt)
 			a.Closed = true
+		}
+		// Flagship: a later correction recorded that this employee left — the prior
+		// system version was open with the old title; the current version carries
+		// the corrected title AND is closed with a bounded valid window. Gives the
+		// history/diff surface a multi-version anchor exercising title + closed +
+		// valid_to deltas, and is count-neutral (still one current row).
+		if i == 18 {
+			prior := a
+			prior.Properties = propsWith(a.Properties, "title", titles[(i+3)%len(titles)])
+			prior.SystemTo = tp(fixtureCorrectionAt)
+			a.SystemFrom = fixtureCorrectionAt
+			a.ValidTo = tp(a.ValidFrom.AddDate(0, 4, 0))
+			a.Closed = true
+			a.LSN = nextLSN()
+			a.TxnID = a.LSN
+			out = append(out, prior, a)
+			continue
 		}
 		// A few titles were later corrected (a system-time supersession): the
 		// current row keeps the corrected title; a prior version carried the old.

@@ -30,6 +30,8 @@ const principalMetadataKey = "x-calystral-principal"
 // Contract surface tags for upstream errors (params.surface).
 const (
 	anchorsSurface          = "anchors"
+	anchorHistorySurface    = "anchor_history"
+	anchorDiffSurface       = "anchor_diff"
 	ledgersSurface          = "ledgers"
 	ledgerEntriesSurface    = "ledger_entries"
 	clusterSummarySurface   = "cluster_summary"
@@ -146,6 +148,28 @@ func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*Lis
 	// AnchorDTO once the shared cybr decoder lands; then paginate here.
 	_ = resp
 	return nil, apierr.Unimplemented(anchorsSurface)
+}
+
+// GetAnchorHistory would return one anchor's full bitemporal version set from
+// Core. Like every read surface it depends on the cvm read-pipeline + the
+// (undesigned) anchor-row wire format, so it reports the gap as 501 today.
+func (c *GRPCClient) GetAnchorHistory(_ context.Context, p GetAnchorHistoryParams) (*GetAnchorHistoryResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+	// TODO(PR-core-decode): query Core for all versions of p.ID and decode
+	// resp.Rows[*].Payload once the row pipeline + wire format land.
+	return nil, apierr.Unimplemented(anchorHistorySurface)
+}
+
+// GetAnchorDiff would resolve one anchor at two bitemporal coordinates from
+// Core. Blocked on the same read-pipeline gap; reports 501 today.
+func (c *GRPCClient) GetAnchorDiff(_ context.Context, p GetAnchorDiffParams) (*GetAnchorDiffResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+	// TODO(PR-core-decode): resolve both coordinates server-side once reads land.
+	return nil, apierr.Unimplemented(anchorDiffSurface)
 }
 
 // ListLedgers mints the principal JWT, issues the list-ledgers CyQL read, and
