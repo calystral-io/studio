@@ -1,4 +1,4 @@
-# Calystral Studio - BFF <-> UI API Contract (PR1 - PR4)
+# Calystral Studio - BFF <-> UI API Contract (PR1 - PR5)
 
 Canonical seam between `calystral-io/studio` (Go BFF) and `calystral-io/studio-ui`
 (React). The BFF OWNS this contract; the UI consumes it. This file is committed
@@ -489,4 +489,62 @@ lookups).
 
 501 behavior under `STUDIO_CORE_SOURCE=grpc`: `params.surface` is
 `runtime_summary` / `runtime_opcodes` / `runtime_plan_cache` respectively.
+
+## 16. Messaging DTOs + GET /api/v1/messaging (PR5)
+
+The messaging view is an OPERATOR observability surface over the cvm-channels
+runtime: durable channels (kind "stream" or "queue"), their live queue/ephemeral
+state, and the live subscriptions (the stream cursors). LIVE state (carries
+`observed_at`); NOT tenant-scoped; requires `reader`.
+
+> NOTE: cvm-channels exposes no enumeration accessor or gRPC surface today (only
+> per-id getters + a Prometheus text render), so the BFF fixture seeds a
+> representative live set behind the demo-data (`source:"fixture"`) tag. Enum
+> values mirror the real cvm-channels types (ChannelKind / ChannelStatus /
+> StartAt / Ordering / OverflowPolicy / AckMode).
+
+`MessagingSummary` (the rollup, fields promoted with a top-level `source`):
+`channel_count` (int); `by_kind` (`{stream, queue}` int counts); `by_status`
+(`{open, closed}` int counts); `ephemeral_count`, `subscription_count`,
+`total_buffered`, `total_in_flight` (int); `total_dropped` (int64); `metrics`
+(array of `MetricSeries` - the 5 live `cvm_channels_*` series: emit-latency
+histogram, partition-routes counter, partition-history-bumps counter,
+subscriber-buffer-depth gauge = `total_buffered`, overflow-drops counter =
+`total_dropped`; same `MetricSeries` shape as §13); `observed_at` (RFC3339).
+Counts and aggregates are derived from the seeded rows.
+
+`GET /api/v1/messaging` returns the `MessagingSummary` object.
+
+## 17. Channel DTO + GET /api/v1/messaging/channels (PR5)
+
+`ChannelDTO`: `id`, `name`, `tenant`; `kind` ("stream"|"queue"), `status`
+("open"|"closed"); `carries` (carried type name), `placement`; `partition_count`
+(int), `partitioned_by` (string|null); `retention_secs` (int64); `ack_mode`
+("auto"|"manual"|null, queue-only), `visibility_timeout_secs` (int64|null,
+queue-only); `ephemeral` (bool), `ttl_secs` (int64|null, ephemeral-only);
+`emit_lsn` (int64); `in_flight`, `redelivery` (int, queue delivery state, 0 for
+streams); `subscription_count` (int, streams); `observed_at`.
+
+`/messaging/channels` returns `{items,page,source}` (id asc). Query parameters:
+`page_size` (1..200), `cursor`, `kind` (exact), `status` (exact), `q`
+(case-insensitive substring over name+carries+placement). Unknown `kind`/`status`
+values match nothing (not a 400).
+
+## 18. Subscription DTO + GET /api/v1/messaging/subscriptions (PR5)
+
+`SubscriptionDTO` (one live stream cursor): `id`, `channel_id`, `channel_name`,
+`tenant`; `start` ("tail"|"offset"|"as_of"), `ordering`
+("per_partition"|"strictly_ordered"), `overflow`
+("drop_oldest"|"drop_newest"|"pause"); `buffer_capacity`, `buffered` (int, running
+live-buffer depth), `partition_span` (int); `live_from_lsn` (int64); `lag` (int64,
+channel emit-LSN minus cursor head, >= 0); `dropped`, `out_of_span_dropped`
+(int64); `observed_at`.
+
+`/messaging/subscriptions` returns `{items,page,source}` (id asc). Query
+parameters: `page_size`, `cursor`, `channel` (exact channel id), `ordering`
+(exact), `overflow` (exact), `q` (substring over id+channel_name).
+
+501 behavior under `STUDIO_CORE_SOURCE=grpc`: `params.surface` is
+`messaging_summary` / `messaging_channels` / `messaging_subscriptions`
+respectively.
 </content>

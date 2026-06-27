@@ -31,6 +31,11 @@ type Fixture struct {
 	runtime   RuntimeSummary
 	opcodes   []OpcodeDTO
 	planCache []PlanCacheEntryDTO
+	// channels and subscriptions are the live cvm-channels messaging set in stable
+	// id order; messaging is the rollup derived from them so they stay consistent.
+	channels      []ChannelDTO
+	subscriptions []SubscriptionDTO
+	messaging     MessagingSummary
 }
 
 // FixtureTenant is the tenant the seeded fixture data belongs to.
@@ -41,16 +46,20 @@ func NewFixture() *Fixture {
 	ledgers, entries := seedLedgers()
 	nodes, shards, summary := seedCluster()
 	opcodes, planCache, runtime := seedRuntime()
+	channels, subscriptions, messaging := seedMessaging()
 	return &Fixture{
-		anchors:   seedAnchors(),
-		ledgers:   ledgers,
-		entries:   entries,
-		nodes:     nodes,
-		shards:    shards,
-		summary:   summary,
-		opcodes:   opcodes,
-		planCache: planCache,
-		runtime:   runtime,
+		anchors:       seedAnchors(),
+		ledgers:       ledgers,
+		entries:       entries,
+		nodes:         nodes,
+		shards:        shards,
+		summary:       summary,
+		opcodes:       opcodes,
+		planCache:     planCache,
+		runtime:       runtime,
+		channels:      channels,
+		subscriptions: subscriptions,
+		messaging:     messaging,
 	}
 }
 
