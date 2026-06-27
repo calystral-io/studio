@@ -1,4 +1,4 @@
-# Calystral Studio - BFF <-> UI API Contract (PR1 - PR5)
+# Calystral Studio - BFF <-> UI API Contract (PR1 - PR6)
 
 Canonical seam between `calystral-io/studio` (Go BFF) and `calystral-io/studio-ui`
 (React). The BFF OWNS this contract; the UI consumes it. This file is committed
@@ -217,14 +217,38 @@ Returns the resolved principal:
 { "tenant_id": "demo-tenant", "user_id": "admin@demo", "roles": ["admin","reader"] }
 ```
 
-## 6. WebSocket (scaffold only in PR1)
+## 6. WebSocket live stream (PR6)
 
-`GET /api/v1/ws` upgrades to WebSocket. PR1 ships the endpoint + auth handshake
-(token via `Sec-WebSocket-Protocol: bearer,<token>` or `?access_token=`) + a
-heartbeat ping/pong + a typed envelope `{ "type": "...", "payload": {...} }`, and
-ONE real message type `{"type":"hello","payload":{"principal":{...},"server_time":"..."}}`
-sent on connect. Live data streams (ledger tail, etc.) land in later PRs; the
-framing + auth + tests ship now so the seam is real, not stubbed.
+`GET /api/v1/ws` upgrades to a WebSocket. Auth is in-handshake: the token arrives
+via `Sec-WebSocket-Protocol: bearer,<token>` (negotiated subprotocol `bearer`) or
+`?access_token=<token>` (browsers cannot set `Authorization` on a WS handshake).
+Missing/invalid token → 401 (typed error envelope written over plain HTTP before
+the upgrade). Heartbeat ping/pong keeps idle connections alive; same-origin is
+enforced against `STUDIO_CORS_ORIGINS`.
+
+Every message is the typed envelope `{ "type": "...", "payload": {...} }`.
+
+**Server → client** types:
+- `hello` (on connect): `{ principal:{tenant_id,user_id,roles}, server_time, topics:["cluster","runtime","messaging"] }`.
+- `subscribed` / `unsubscribed`: `{ topic }` acks.
+- `snapshot`: `{ topic, data }` — `data` is the SAME body the matching REST summary
+  endpoint serves (for `cluster`, the §11 ClusterSummary + `source`; `runtime` →
+  §13; `messaging` → §16), with `observed_at` stamped to the push instant. Emitted
+  immediately on subscribe and then every push interval (default 2s, env-free).
+- `error`: `{ topic?, code, message }` — `/errors/validation/unknown_topic`,
+  `/errors/auth/forbidden` (reader role required), `/errors/validation/unknown_message`,
+  or an upstream gap (`/errors/upstream/unimplemented` under `STUDIO_CORE_SOURCE=grpc`)
+  surfaced IN-BAND rather than closing the socket.
+
+**Client → server** types:
+- `subscribe`: `{ type:"subscribe", topic }` — topic ∈ {cluster, runtime, messaging};
+  requires the `reader` role; re-subscribe is idempotent.
+- `unsubscribe`: `{ type:"unsubscribe", topic }`.
+
+The topics are the three live (non-bitemporal) summary surfaces. Stamping
+`observed_at` to "now" makes the live view tick; the BFF never fabricates metric
+deltas — under `fixture` each tick re-serves the same honest snapshot (only the
+timestamp advances), and under `grpc` it emits the in-band 501 error event.
 
 ## 7. CORS / dev proxy
 

@@ -142,6 +142,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	case <-ctx.Done():
 		logger.Info("studio serve shutting down")
+		// Terminate live WebSocket push loops (hijacked conns Shutdown can't track).
+		srv.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
