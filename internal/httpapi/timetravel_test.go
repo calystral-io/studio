@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/calystral-io/studio/internal/apierr"
 )
 
 func TestParseAsOf(t *testing.T) {
@@ -36,6 +38,100 @@ func TestParseAsOf(t *testing.T) {
 	}
 	if _, err := parseAsOf("2026-13-99"); err == nil {
 		t.Error("expected an error for an out-of-range date")
+	}
+}
+
+func TestParseSystemAsOf(t *testing.T) {
+	if v, err := parseSystemAsOf(""); v != nil || err != nil {
+		t.Errorf("empty: got (%v, %v), want (nil, nil)", v, err)
+	}
+
+	rfc, err := parseSystemAsOf("2026-06-19T12:30:00Z")
+	if err != nil || rfc == nil || !rfc.Equal(time.Date(2026, 6, 19, 12, 30, 0, 0, time.UTC)) {
+		t.Errorf("rfc3339: got (%v, %v)", rfc, err)
+	}
+
+	// A bare date projects to the start of the UTC day.
+	day, err := parseSystemAsOf("2026-06-19")
+	if err != nil || day == nil || !day.Equal(time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("date-only: got (%v, %v), want 2026-06-19T00:00:00Z", day, err)
+	}
+
+	// A malformed value is the distinct invalid_system_as_of error.
+	_, err = parseSystemAsOf("not-a-time")
+	if err == nil {
+		t.Fatal("expected an error for a malformed system_as_of")
+	}
+	if ae, ok := err.(*apierr.APIError); !ok || ae.Code != apierr.CodeInvalidSystemAsOf {
+		t.Errorf("err = %v, want invalid_system_as_of", err)
+	}
+}
+
+// TestAnchorsSystemAsOf drives the system-time (transaction-time) axis end to
+// end over HTTP: the default view is current-only, and a past system_as_of
+// reveals a corrected anchor's pre-correction value.
+func TestAnchorsSystemAsOf(t *testing.T) {
+	s := newFixtureServer()
+
+	type anchorsBody struct {
+		Items []struct {
+			ID         string         `json:"id"`
+			Properties map[string]any `json:"properties"`
+			SystemTo   *string        `json:"system_to"`
+		} `json:"items"`
+		Page struct {
+			TotalEstimate int `json:"total_estimate"`
+		} `json:"page"`
+	}
+	get := func(target string) anchorsBody {
+		rec := do(t, s, http.MethodGet, target, "mock-admin-token")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+		var body anchorsBody
+		decode(t, rec, &body)
+		return body
+	}
+	titleOf := func(b anchorsBody, id string) string {
+		for _, a := range b.Items {
+			if a.ID == id {
+				title, _ := a.Properties["title"].(string)
+				return title
+			}
+		}
+		t.Fatalf("anchor %s not found", id)
+		return ""
+	}
+
+	// Default: current-only (142), corrected employee shows its current title,
+	// and no superseded row (system_to != null) leaks through.
+	cur := get("/api/v1/anchors?page_size=200")
+	if cur.Page.TotalEstimate != 142 {
+		t.Fatalf("default total = %d, want 142", cur.Page.TotalEstimate)
+	}
+	for _, a := range cur.Items {
+		if a.SystemTo != nil {
+			t.Errorf("default view leaked superseded row %s", a.ID)
+		}
+	}
+	if got := titleOf(cur, "anchor_employee_0009"); got != "Engineering Manager" {
+		t.Errorf("default title = %q, want Engineering Manager", got)
+	}
+
+	// system_as_of just before the 2026-06-20 correction: the same employee
+	// projects to its prior title.
+	past := get("/api/v1/anchors?system_as_of=2026-06-19&page_size=200")
+	if past.Page.TotalEstimate != 142 {
+		t.Fatalf("system_as_of=2026-06-19 total = %d, want 142", past.Page.TotalEstimate)
+	}
+	if got := titleOf(past, "anchor_employee_0009"); got != "Principal Engineer" {
+		t.Errorf("pre-correction title = %q, want Principal Engineer", got)
+	}
+
+	// A system_as_of before any anchor existed is an empty (not error) view.
+	ancient := get("/api/v1/anchors?system_as_of=2020-01-01&page_size=200")
+	if ancient.Page.TotalEstimate != 0 {
+		t.Errorf("system_as_of=2020 total = %d, want 0", ancient.Page.TotalEstimate)
 	}
 }
 

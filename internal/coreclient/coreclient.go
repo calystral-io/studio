@@ -64,6 +64,11 @@ type ListAnchorsParams struct {
 	Type     string
 	Q        string
 	AsOf     *time.Time
+	// SystemAsOf projects the system-time (transaction-time) axis: the view as
+	// the store knew it at this instant. nil selects the current view (rows whose
+	// system interval is still open). Anchors-only; ledger entries carry no system
+	// axis.
+	SystemAsOf *time.Time
 	// Principal is the resolved caller. The gRPC adapter mints the
 	// x-calystral-principal JWT from it; the fixture only needs TenantID.
 	Principal *auth.Principal

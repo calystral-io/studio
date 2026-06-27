@@ -95,6 +95,17 @@ func (f *Fixture) ListAnchors(_ context.Context, p ListAnchorsParams) (*ListAnch
 		if p.AsOf != nil && !validAt(a, *p.AsOf) {
 			continue
 		}
+		// System-time (transaction-time) projection. With no system_as_of the
+		// view is current-only: rows whose system interval is still open
+		// (system_to == nil), hiding superseded versions. With a system_as_of the
+		// view is projected to that decision instant via the same half-open rule.
+		if p.SystemAsOf == nil {
+			if a.SystemTo != nil {
+				continue
+			}
+		} else if !systemAt(a, *p.SystemAsOf) {
+			continue
+		}
 		if q != "" && !matchesQuery(a, q) {
 			continue
 		}
@@ -124,12 +135,10 @@ func (f *Fixture) ListAnchors(_ context.Context, p ListAnchorsParams) (*ListAnch
 	return &ListAnchorsResult{Items: items, Page: page, Source: SourceFixture}, nil
 }
 
-// validAt reports whether anchor a is valid (business time) at instant t:
-// valid_from <= t and (valid_to is open or t < valid_to).
 // inInterval reports whether t falls in the half-open interval [from, to): t is
 // at or after from and strictly before to. A nil upper bound is open/unbounded.
-// This is the shared bitemporal valid-time projection (anchors valid_from/to and
-// ledger entries effective_from/to).
+// This is the shared bitemporal projection used by both axes: valid-time
+// (valid_from/to) and system-time (system_from/to).
 func inInterval(from time.Time, to *time.Time, t time.Time) bool {
 	if t.Before(from) {
 		return false
@@ -143,6 +152,12 @@ func inInterval(from time.Time, to *time.Time, t time.Time) bool {
 // validAt reports whether an anchor's valid-time interval contains t.
 func validAt(a AnchorDTO, t time.Time) bool {
 	return inInterval(a.ValidFrom, a.ValidTo, t)
+}
+
+// systemAt reports whether an anchor's system-time (transaction-time) interval
+// contains t: the version the store knew at decision instant t.
+func systemAt(a AnchorDTO, t time.Time) bool {
+	return inInterval(a.SystemFrom, a.SystemTo, t)
 }
 
 // matchesQuery reports whether the lowercased q occurs in the label or any
@@ -170,6 +185,43 @@ func mustUTC(s string) time.Time {
 }
 
 func tp(t time.Time) *time.Time { return &t }
+
+// fixtureCorrectionAt is the shared system-time (transaction time) at which a
+// deterministic subset of anchors were superseded by a corrected version. A
+// system_as_of before this instant projects those anchors to their
+// pre-correction value; the current (default) view shows the corrected one.
+var fixtureCorrectionAt = mustUTC("2026-06-20T00:00:00Z")
+
+// propsWith clones base and overrides one key, so a prior system-version can
+// carry a different property value without aliasing the current row's map.
+func propsWith(base map[string]any, key string, val any) map[string]any {
+	m := make(map[string]any, len(base))
+	for k, v := range base {
+		m[k] = v
+	}
+	m[key] = val
+	return m
+}
+
+// supersedeSystem records that anchor cur (carrying its corrected, current
+// values) was a system-time correction of an earlier version. It returns the
+// prior (superseded) row — same id, the pre-correction label and properties,
+// system interval closed at fixtureCorrectionAt — and re-opens cur's system
+// interval at the correction instant with a fresh decision LSN. The prior row
+// keeps cur's original system_from and LSN (copied before cur is mutated). Label
+// and properties are passed explicitly so a caller can correct either; today's
+// seed corrects a single property and reuses the current label.
+func supersedeSystem(cur *AnchorDTO, priorLabel string, priorProps map[string]any, newLSN int64) AnchorDTO {
+	prior := *cur
+	prior.Label = priorLabel
+	prior.Properties = priorProps
+	prior.SystemTo = tp(fixtureCorrectionAt)
+
+	cur.SystemFrom = fixtureCorrectionAt
+	cur.LSN = newLSN
+	cur.TxnID = newLSN
+	return prior
+}
 
 // seedAnchors builds ~142 deterministic bitemporal anchors across four node
 // types. valid_from is spread across months so as_of projection is meaningful;
@@ -223,6 +275,12 @@ func seedAnchors() []AnchorDTO {
 			vt := vf.AddDate(0, 2, 0)
 			a.ValidTo = tp(vt)
 			a.Closed = true
+		}
+		// A few titles were later corrected (a system-time supersession): the
+		// current row keeps the corrected title; a prior version carried the old.
+		if i%9 == 0 && i > 0 {
+			priorTitle := titles[(i+3)%len(titles)]
+			out = append(out, supersedeSystem(&a, a.Label, propsWith(a.Properties, "title", priorTitle), nextLSN()))
 		}
 		out = append(out, a)
 	}
@@ -279,6 +337,11 @@ func seedAnchors() []AnchorDTO {
 			a.ValidTo = tp(vt)
 			a.Closed = true
 		}
+		// A few project statuses were later corrected (system-time supersession).
+		if i%11 == 0 && i > 0 {
+			priorStatus := projStatus[(i+2)%len(projStatus)]
+			out = append(out, supersedeSystem(&a, a.Label, propsWith(a.Properties, "status", priorStatus), nextLSN()))
+		}
 		out = append(out, a)
 	}
 
@@ -304,6 +367,11 @@ func seedAnchors() []AnchorDTO {
 			LSN:        nextLSN(),
 		}
 		a.TxnID = a.LSN
+		// A few customer tiers were later corrected (system-time supersession).
+		if i%9 == 0 && i > 0 {
+			priorTier := tiers[(i+1)%len(tiers)]
+			out = append(out, supersedeSystem(&a, a.Label, propsWith(a.Properties, "tier", priorTier), nextLSN()))
+		}
 		out = append(out, a)
 	}
 

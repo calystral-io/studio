@@ -240,6 +240,7 @@ func TestAnchorsValidation(t *testing.T) {
 		{"page_size non-integer", "/api/v1/anchors?page_size=abc", "/errors/validation/page_size_out_of_range"},
 		{"bad cursor", "/api/v1/anchors?cursor=%21%21%21", "/errors/validation/invalid_cursor"},
 		{"bad as_of", "/api/v1/anchors?as_of=not-a-time", "/errors/validation/invalid_as_of"},
+		{"bad system_as_of", "/api/v1/anchors?system_as_of=not-a-time", "/errors/validation/invalid_system_as_of"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

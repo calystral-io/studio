@@ -129,6 +129,11 @@ func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*Lis
 	if p.AsOf != nil {
 		req.AsOfUnixMs = uint64(p.AsOf.UnixMilli())
 	}
+	// NOTE: p.SystemAsOf (system-time/transaction-time projection) has no field
+	// on querypb.QueryRequest yet, so it cannot be honored over gRPC. The anchors
+	// surface returns 501 below regardless; wiring the system axis upstream needs
+	// a proto field (e.g. system_as_of_unix_ms) plus Core support.
+	// TODO(PR-core-decode): thread p.SystemAsOf once the proto carries it.
 
 	resp, err := c.query.Query(ctx, req)
 	if err != nil {
