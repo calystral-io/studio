@@ -29,15 +29,18 @@ const principalMetadataKey = "x-calystral-principal"
 
 // Contract surface tags for upstream errors (params.surface).
 const (
-	anchorsSurface        = "anchors"
-	ledgersSurface        = "ledgers"
-	ledgerEntriesSurface  = "ledger_entries"
-	clusterSummarySurface = "cluster_summary"
-	clusterNodesSurface   = "cluster_nodes"
-	clusterShardsSurface  = "cluster_shards"
-	runtimeSummarySurface = "runtime_summary"
-	opcodesSurface        = "runtime_opcodes"
-	planCacheSurface      = "runtime_plan_cache"
+	anchorsSurface          = "anchors"
+	ledgersSurface          = "ledgers"
+	ledgerEntriesSurface    = "ledger_entries"
+	clusterSummarySurface   = "cluster_summary"
+	clusterNodesSurface     = "cluster_nodes"
+	clusterShardsSurface    = "cluster_shards"
+	runtimeSummarySurface   = "runtime_summary"
+	opcodesSurface          = "runtime_opcodes"
+	planCacheSurface        = "runtime_plan_cache"
+	messagingSummarySurface = "messaging_summary"
+	channelsSurface         = "messaging_channels"
+	subscriptionsSurface    = "messaging_subscriptions"
 )
 
 // GRPCClient is the live Core adapter.
@@ -376,6 +379,90 @@ func (c *GRPCClient) ListPlanCacheEntries(ctx context.Context, p ListPlanCacheEn
 	return nil, apierr.Unimplemented(planCacheSurface)
 }
 
+// MessagingSummary mints the principal JWT, issues the messaging-state read, and
+// maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we
+// never fabricate a rollup.
+func (c *GRPCClient) MessagingSummary(ctx context.Context, p MessagingSummaryParams) (*MessagingSummaryResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildMessagingSummaryCyQL(),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, messagingSummarySurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into MessagingSummary.
+	_ = resp
+	return nil, apierr.Unimplemented(messagingSummarySurface)
+}
+
+// ListChannels mints the principal JWT, issues the list-channels read, and maps
+// Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
+// fabricate channels.
+func (c *GRPCClient) ListChannels(ctx context.Context, p ListChannelsParams) (*ListChannelsResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListChannelsCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, channelsSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into ChannelDTO.
+	_ = resp
+	return nil, apierr.Unimplemented(channelsSurface)
+}
+
+// ListSubscriptions mints the principal JWT, issues the list-subscriptions read,
+// and maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501;
+// we never fabricate subscriptions.
+func (c *GRPCClient) ListSubscriptions(ctx context.Context, p ListSubscriptionsParams) (*ListSubscriptionsResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListSubscriptionsCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, subscriptionsSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into SubscriptionDTO.
+	_ = resp
+	return nil, apierr.Unimplemented(subscriptionsSurface)
+}
+
 // withPrincipal mints the dev principal JWT and appends it as the
 // x-calystral-principal outgoing metadata Core reads.
 func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (context.Context, error) {
@@ -538,6 +625,64 @@ func buildListPlanCacheCyQL(p ListPlanCacheEntriesParams) string {
 		b.WriteString(strings.Join(wheres, " AND "))
 	}
 	b.WriteString(" RETURN e ORDER BY e.key")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildMessagingSummaryCyQL renders a plausible CyQL read for the cvm-channels
+// messaging rollup. Core returns UNIMPLEMENTED regardless of the text.
+func buildMessagingSummaryCyQL() string {
+	return "MATCH (m:Messaging) RETURN m.summary"
+}
+
+// buildListChannelsCyQL renders a plausible CyQL read for the channels with the
+// requested kind/status/q filters. Core returns UNIMPLEMENTED regardless.
+func buildListChannelsCyQL(p ListChannelsParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (c:Channel)")
+	var wheres []string
+	if p.Kind != "" {
+		wheres = append(wheres, fmt.Sprintf("c.kind = %q", p.Kind))
+	}
+	if p.Status != "" {
+		wheres = append(wheres, fmt.Sprintf("c.status = %q", p.Status))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("c CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN c ORDER BY c.id")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildListSubscriptionsCyQL renders a plausible CyQL read for the subscriptions
+// with the requested channel/ordering/overflow/q filters. Core returns
+// UNIMPLEMENTED regardless of the text.
+func buildListSubscriptionsCyQL(p ListSubscriptionsParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (s:Subscription)")
+	var wheres []string
+	if p.Channel != "" {
+		wheres = append(wheres, fmt.Sprintf("s.channel_id = %q", p.Channel))
+	}
+	if p.Ordering != "" {
+		wheres = append(wheres, fmt.Sprintf("s.ordering = %q", p.Ordering))
+	}
+	if p.Overflow != "" {
+		wheres = append(wheres, fmt.Sprintf("s.overflow = %q", p.Overflow))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("s CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN s ORDER BY s.id")
 	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
 	return b.String()
 }

@@ -493,6 +493,134 @@ func (s *Server) handleRuntimePlanCache(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, planCacheResponse{Items: res.Items, Page: res.Page, Source: res.Source})
 }
 
+// messagingSummaryResponse is the cvm-channels rollup with a top-level `source`
+// tag (contract section 16). The embedded MessagingSummary fields are promoted.
+type messagingSummaryResponse struct {
+	coreclient.MessagingSummary
+	Source string `json:"source"`
+}
+
+// handleMessagingSummary serves the cvm-channels messaging rollup (channel counts
+// + subscription aggregates + live metric series). Requires the reader role. The
+// messaging runtime is shared operator infrastructure (not tenant-scoped data).
+func (s *Server) handleMessagingSummary(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	res, err := s.core.MessagingSummary(r.Context(), coreclient.MessagingSummaryParams{
+		TenantID:  p.TenantID,
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, messagingSummaryResponse{MessagingSummary: res.Summary, Source: res.Source})
+}
+
+// channelsResponse is the paginated channels envelope (contract section 17).
+type channelsResponse struct {
+	Items  []coreclient.ChannelDTO `json:"items"`
+	Page   coreclient.Page         `json:"page"`
+	Source string                  `json:"source"`
+}
+
+// handleMessagingChannels validates query params and serves a page of channels
+// (id asc). Requires the reader role. Unknown kind/status filter values simply
+// match nothing.
+func (s *Server) handleMessagingChannels(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	q := r.URL.Query()
+	pageSize, err := parsePageSize(q.Get("page_size"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	res, err := s.core.ListChannels(r.Context(), coreclient.ListChannelsParams{
+		TenantID:  p.TenantID,
+		PageSize:  pageSize,
+		Cursor:    q.Get("cursor"),
+		Kind:      q.Get("kind"),
+		Status:    q.Get("status"),
+		Q:         q.Get("q"),
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, channelsResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
+// subscriptionsResponse is the paginated subscriptions envelope (contract section
+// 18).
+type subscriptionsResponse struct {
+	Items  []coreclient.SubscriptionDTO `json:"items"`
+	Page   coreclient.Page              `json:"page"`
+	Source string                       `json:"source"`
+}
+
+// handleMessagingSubscriptions validates query params and serves a page of
+// subscriptions (id asc). Requires the reader role. The `channel` filter is an
+// exact channel id; unknown channel/ordering/overflow values match nothing.
+func (s *Server) handleMessagingSubscriptions(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	q := r.URL.Query()
+	pageSize, err := parsePageSize(q.Get("page_size"))
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	res, err := s.core.ListSubscriptions(r.Context(), coreclient.ListSubscriptionsParams{
+		TenantID:  p.TenantID,
+		PageSize:  pageSize,
+		Cursor:    q.Get("cursor"),
+		Channel:   q.Get("channel"),
+		Ordering:  q.Get("ordering"),
+		Overflow:  q.Get("overflow"),
+		Q:         q.Get("q"),
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, subscriptionsResponse{Items: res.Items, Page: res.Page, Source: res.Source})
+}
+
 // parseLSNBounds resolves the optional from_lsn/to_lsn params. An empty value is
 // an unbounded (nil) side; a non-integer value or an inverted window
 // (from_lsn > to_lsn) is a 400 invalid_lsn_range error.

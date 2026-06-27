@@ -438,6 +438,150 @@ type ListPlanCacheEntriesResult struct {
 	Source string
 }
 
+// --- Streams / channels / subscriptions (contract sections 16/17/18) -------
+//
+// The messaging view is an OPERATOR observability surface over the cvm-channels
+// runtime: durable channels (kind "stream" or "queue"), their live queue/
+// ephemeral state, and the live subscriptions (the stream cursors). Like the
+// cluster/runtime views this is LIVE state, NOT bitemporal: every snapshot
+// carries an `observed_at` instant. cvm-channels exposes no enumeration accessor
+// or gRPC surface today, so the fixture seeds a representative live set behind
+// the demo-data tag; the gRPC path maps to 501 until Core grows the accessor.
+
+// ChannelDTO is one cvm-channels channel as the operator UI renders it (contract
+// section 17). A channel's Kind is "stream" (fan-out, subscription-driven) or
+// "queue" (at-least-once, ack/nack). AckMode/VisibilityTimeoutSecs are queue-only
+// (nil for streams); TTLSecs is set only for ephemeral channels. InFlight and
+// Redelivery are queue delivery state (0 for streams).
+type ChannelDTO struct {
+	ID                    string    `json:"id"`
+	Name                  string    `json:"name"`
+	Tenant                string    `json:"tenant"`
+	Kind                  string    `json:"kind"`
+	Status                string    `json:"status"`
+	Carries               string    `json:"carries"`
+	Placement             string    `json:"placement"`
+	PartitionCount        int       `json:"partition_count"`
+	PartitionedBy         *string   `json:"partitioned_by"`
+	RetentionSecs         int64     `json:"retention_secs"`
+	AckMode               *string   `json:"ack_mode"`
+	VisibilityTimeoutSecs *int64    `json:"visibility_timeout_secs"`
+	Ephemeral             bool      `json:"ephemeral"`
+	TTLSecs               *int64    `json:"ttl_secs"`
+	EmitLSN               int64     `json:"emit_lsn"`
+	InFlight              int       `json:"in_flight"`
+	Redelivery            int       `json:"redelivery"`
+	SubscriptionCount     int       `json:"subscription_count"`
+	ObservedAt            time.Time `json:"observed_at"`
+}
+
+// SubscriptionDTO is one live stream cursor as the operator UI renders it
+// (contract section 18). Start is "tail"|"offset"|"as_of"; Ordering is
+// "per_partition"|"strictly_ordered"; Overflow is "drop_oldest"|"drop_newest"|
+// "pause". Buffered is the running live-buffer depth; Lag is the channel emit-LSN
+// minus the cursor head (always >= 0).
+type SubscriptionDTO struct {
+	ID               string    `json:"id"`
+	ChannelID        string    `json:"channel_id"`
+	ChannelName      string    `json:"channel_name"`
+	Tenant           string    `json:"tenant"`
+	Start            string    `json:"start"`
+	Ordering         string    `json:"ordering"`
+	Overflow         string    `json:"overflow"`
+	BufferCapacity   int       `json:"buffer_capacity"`
+	Buffered         int       `json:"buffered"`
+	PartitionSpan    int       `json:"partition_span"`
+	LiveFromLSN      int64     `json:"live_from_lsn"`
+	Lag              int64     `json:"lag"`
+	Dropped          int64     `json:"dropped"`
+	OutOfSpanDropped int64     `json:"out_of_span_dropped"`
+	ObservedAt       time.Time `json:"observed_at"`
+}
+
+// ChannelKindCounts is the per-kind channel tally on a MessagingSummary.
+type ChannelKindCounts struct {
+	Stream int `json:"stream"`
+	Queue  int `json:"queue"`
+}
+
+// ChannelStatusCounts is the per-status channel tally on a MessagingSummary.
+type ChannelStatusCounts struct {
+	Open   int `json:"open"`
+	Closed int `json:"closed"`
+}
+
+// MessagingSummary is the cvm-channels observability rollup (contract section
+// 16): channel counts by kind/status, subscription aggregates, and the live
+// cvm_channels_* metric series. Live state; ObservedAt is the snapshot instant.
+type MessagingSummary struct {
+	ChannelCount      int                 `json:"channel_count"`
+	ByKind            ChannelKindCounts   `json:"by_kind"`
+	ByStatus          ChannelStatusCounts `json:"by_status"`
+	EphemeralCount    int                 `json:"ephemeral_count"`
+	SubscriptionCount int                 `json:"subscription_count"`
+	TotalBuffered     int                 `json:"total_buffered"`
+	TotalInFlight     int                 `json:"total_in_flight"`
+	TotalDropped      int64               `json:"total_dropped"`
+	Metrics           []MetricSeries      `json:"metrics"`
+	ObservedAt        time.Time           `json:"observed_at"`
+}
+
+// MessagingSummaryParams carries the validated inputs for the messaging rollup.
+// Messaging is shared operator infrastructure, so it is not tenant-scoped; the
+// Principal is still carried so the gRPC adapter can mint the principal JWT.
+type MessagingSummaryParams struct {
+	TenantID  string
+	Principal *auth.Principal
+}
+
+// MessagingSummaryResult is the messaging rollup plus the source tag.
+type MessagingSummaryResult struct {
+	Summary MessagingSummary
+	Source  string
+}
+
+// ListChannelsParams carries the validated inputs for the channel listing. Kind
+// ("stream"/"queue") and Status ("open"/"closed"), if set, are exact filters; Q
+// matches name/carries/placement (case-insensitive substring).
+type ListChannelsParams struct {
+	TenantID  string
+	PageSize  int
+	Cursor    string
+	Kind      string
+	Status    string
+	Q         string
+	Principal *auth.Principal
+}
+
+// ListChannelsResult is one page of channels (id asc) plus the source tag.
+type ListChannelsResult struct {
+	Items  []ChannelDTO
+	Page   Page
+	Source string
+}
+
+// ListSubscriptionsParams carries the validated inputs for the subscription
+// listing. Channel (a channel id), Ordering, and Overflow, if set, are exact
+// filters; Q matches the subscription id and channel name.
+type ListSubscriptionsParams struct {
+	TenantID  string
+	PageSize  int
+	Cursor    string
+	Channel   string
+	Ordering  string
+	Overflow  string
+	Q         string
+	Principal *auth.Principal
+}
+
+// ListSubscriptionsResult is one page of subscriptions (id asc) plus the source
+// tag.
+type ListSubscriptionsResult struct {
+	Items  []SubscriptionDTO
+	Page   Page
+	Source string
+}
+
 // CoreClient is the read-path port. CheckCore reports the readiness status the
 // /readyz endpoint surfaces.
 type CoreClient interface {
@@ -450,6 +594,9 @@ type CoreClient interface {
 	RuntimeSummary(ctx context.Context, p RuntimeSummaryParams) (*RuntimeSummaryResult, error)
 	ListOpcodes(ctx context.Context, p ListOpcodesParams) (*ListOpcodesResult, error)
 	ListPlanCacheEntries(ctx context.Context, p ListPlanCacheEntriesParams) (*ListPlanCacheEntriesResult, error)
+	MessagingSummary(ctx context.Context, p MessagingSummaryParams) (*MessagingSummaryResult, error)
+	ListChannels(ctx context.Context, p ListChannelsParams) (*ListChannelsResult, error)
+	ListSubscriptions(ctx context.Context, p ListSubscriptionsParams) (*ListSubscriptionsResult, error)
 	CheckCore(ctx context.Context) string
 	Source() string
 	Close() error
