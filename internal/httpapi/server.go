@@ -1,7 +1,7 @@
 // Package httpapi is the BFF HTTP edge: a chi router with request-id,
 // structured slog logging, panic recovery, CORS, and mock auth middleware,
 // serving the contract's health/version/identity, anchors, ledgers, cluster,
-// and WebSocket surfaces.
+// runtime, and WebSocket surfaces.
 package httpapi
 
 import (
@@ -101,6 +101,9 @@ func (s *Server) routes(opts Options) http.Handler {
 			r.Get("/cluster", s.handleClusterSummary)
 			r.Get("/cluster/nodes", s.handleClusterNodes)
 			r.Get("/cluster/shards", s.handleClusterShards)
+			r.Get("/runtime", s.handleRuntimeSummary)
+			r.Get("/runtime/opcodes", s.handleRuntimeOpcodes)
+			r.Get("/runtime/plan-cache", s.handleRuntimePlanCache)
 		})
 	})
 

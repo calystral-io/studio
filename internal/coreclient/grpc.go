@@ -35,6 +35,9 @@ const (
 	clusterSummarySurface = "cluster_summary"
 	clusterNodesSurface   = "cluster_nodes"
 	clusterShardsSurface  = "cluster_shards"
+	runtimeSummarySurface = "runtime_summary"
+	opcodesSurface        = "runtime_opcodes"
+	planCacheSurface      = "runtime_plan_cache"
 )
 
 // GRPCClient is the live Core adapter.
@@ -289,6 +292,90 @@ func (c *GRPCClient) ListShards(ctx context.Context, p ListShardsParams) (*ListS
 	return nil, apierr.Unimplemented(clusterShardsSurface)
 }
 
+// RuntimeSummary mints the principal JWT, issues the runtime-state read, and maps
+// Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
+// fabricate a rollup.
+func (c *GRPCClient) RuntimeSummary(ctx context.Context, p RuntimeSummaryParams) (*RuntimeSummaryResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildRuntimeSummaryCyQL(),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, runtimeSummarySurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into RuntimeSummary.
+	_ = resp
+	return nil, apierr.Unimplemented(runtimeSummarySurface)
+}
+
+// ListOpcodes mints the principal JWT, issues the opcode-profile read, and maps
+// Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
+// fabricate opcodes.
+func (c *GRPCClient) ListOpcodes(ctx context.Context, p ListOpcodesParams) (*ListOpcodesResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListOpcodesCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, opcodesSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into OpcodeDTO.
+	_ = resp
+	return nil, apierr.Unimplemented(opcodesSurface)
+}
+
+// ListPlanCacheEntries mints the principal JWT, issues the plan-cache read, and
+// maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we
+// never fabricate cache entries.
+func (c *GRPCClient) ListPlanCacheEntries(ctx context.Context, p ListPlanCacheEntriesParams) (*ListPlanCacheEntriesResult, error) {
+	if _, err := decodeCursor(p.Cursor); err != nil {
+		return nil, err
+	}
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+
+	ctx, err := c.withPrincipal(ctx, p.Principal)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
+		Cyql:   buildListPlanCacheCyQL(p),
+		Tenant: p.Principal.TenantID,
+	})
+	if err != nil {
+		return nil, mapCoreErrorForSurface(err, planCacheSurface)
+	}
+
+	// TODO(PR-core-decode): decode resp.Rows[*].Payload into PlanCacheEntryDTO.
+	_ = resp
+	return nil, apierr.Unimplemented(planCacheSurface)
+}
+
 // withPrincipal mints the dev principal JWT and appends it as the
 // x-calystral-principal outgoing metadata Core reads.
 func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (context.Context, error) {
@@ -399,6 +486,58 @@ func buildListShardsCyQL(p ListShardsParams) string {
 		b.WriteString(strings.Join(wheres, " AND "))
 	}
 	b.WriteString(" RETURN s ORDER BY s.id")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildRuntimeSummaryCyQL renders a plausible CyQL read for the cvm runtime-state
+// rollup (VM metrics + plan-cache stats). Core returns UNIMPLEMENTED regardless.
+func buildRuntimeSummaryCyQL() string {
+	return "MATCH (r:Runtime) RETURN r.summary"
+}
+
+// buildListOpcodesCyQL renders a plausible CyQL read for the opcode execution
+// profile with the requested category/q filters. Core returns UNIMPLEMENTED
+// regardless of the text.
+func buildListOpcodesCyQL(p ListOpcodesParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (o:Opcode)")
+	var wheres []string
+	if p.Category != "" {
+		wheres = append(wheres, fmt.Sprintf("o.category = %q", p.Category))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("o.mnemonic CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN o ORDER BY o.code")
+	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
+	return b.String()
+}
+
+// buildListPlanCacheCyQL renders a plausible CyQL read for the plan-cache entries
+// with the requested pinned/q filters. Core returns UNIMPLEMENTED regardless.
+func buildListPlanCacheCyQL(p ListPlanCacheEntriesParams) string {
+	var b strings.Builder
+	b.WriteString("MATCH (e:PlanCacheEntry)")
+	var wheres []string
+	// Only a valid boolean becomes a CyQL clause; any other value is a
+	// match-nothing filter handled by the fixture, so we omit it here rather than
+	// inject an unquoted, invalid bare token.
+	if p.Pinned == "true" || p.Pinned == "false" {
+		wheres = append(wheres, fmt.Sprintf("e.pinned = %s", p.Pinned))
+	}
+	if q := strings.TrimSpace(p.Q); q != "" {
+		wheres = append(wheres, fmt.Sprintf("e.key CONTAINS %q", q))
+	}
+	if len(wheres) > 0 {
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(wheres, " AND "))
+	}
+	b.WriteString(" RETURN e ORDER BY e.key")
 	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
 	return b.String()
 }

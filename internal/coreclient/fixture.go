@@ -24,6 +24,13 @@ type Fixture struct {
 	nodes   []NodeDTO
 	shards  []ShardDTO
 	summary ClusterSummary
+	// runtime is the cvm runtime-state snapshot (VM metrics + plan-cache rollup +
+	// headline counters); opcodes and planCache are its paginated row sets in
+	// stable order. The summary's plan-cache rollup is derived from planCache so
+	// they stay mutually consistent.
+	runtime   RuntimeSummary
+	opcodes   []OpcodeDTO
+	planCache []PlanCacheEntryDTO
 }
 
 // FixtureTenant is the tenant the seeded fixture data belongs to.
@@ -33,13 +40,17 @@ const FixtureTenant = "demo-tenant"
 func NewFixture() *Fixture {
 	ledgers, entries := seedLedgers()
 	nodes, shards, summary := seedCluster()
+	opcodes, planCache, runtime := seedRuntime()
 	return &Fixture{
-		anchors: seedAnchors(),
-		ledgers: ledgers,
-		entries: entries,
-		nodes:   nodes,
-		shards:  shards,
-		summary: summary,
+		anchors:   seedAnchors(),
+		ledgers:   ledgers,
+		entries:   entries,
+		nodes:     nodes,
+		shards:    shards,
+		summary:   summary,
+		opcodes:   opcodes,
+		planCache: planCache,
+		runtime:   runtime,
 	}
 }
 
