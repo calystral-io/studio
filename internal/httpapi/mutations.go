@@ -21,7 +21,7 @@ const maxMutationBody = 1 << 20 // 1 MiB
 // the resulting current version, plus the superseded prior version for
 // correct/close.
 type anchorMutationResponse struct {
-	Anchor     coreclient.AnchorDTO  `json:"anchor"`
+	Anchor     coreclient.AnchorDTO  `json:"node"`
 	Superseded *coreclient.AnchorDTO `json:"superseded,omitempty"`
 	Source     string                `json:"source"`
 }

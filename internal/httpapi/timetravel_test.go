@@ -105,7 +105,7 @@ func TestAnchorsSystemAsOf(t *testing.T) {
 
 	// Default: current-only (142), corrected employee shows its current title,
 	// and no superseded row (system_to != null) leaks through.
-	cur := get("/api/v1/anchors?page_size=200")
+	cur := get("/api/v1/nodes?page_size=200")
 	if cur.Page.TotalEstimate != 142 {
 		t.Fatalf("default total = %d, want 142", cur.Page.TotalEstimate)
 	}
@@ -114,22 +114,22 @@ func TestAnchorsSystemAsOf(t *testing.T) {
 			t.Errorf("default view leaked superseded row %s", a.ID)
 		}
 	}
-	if got := titleOf(cur, "anchor_employee_0009"); got != "Engineering Manager" {
+	if got := titleOf(cur, "node_employee_0009"); got != "Engineering Manager" {
 		t.Errorf("default title = %q, want Engineering Manager", got)
 	}
 
 	// system_as_of just before the 2026-06-20 correction: the same employee
 	// projects to its prior title.
-	past := get("/api/v1/anchors?system_as_of=2026-06-19&page_size=200")
+	past := get("/api/v1/nodes?system_as_of=2026-06-19&page_size=200")
 	if past.Page.TotalEstimate != 142 {
 		t.Fatalf("system_as_of=2026-06-19 total = %d, want 142", past.Page.TotalEstimate)
 	}
-	if got := titleOf(past, "anchor_employee_0009"); got != "Principal Engineer" {
+	if got := titleOf(past, "node_employee_0009"); got != "Principal Engineer" {
 		t.Errorf("pre-correction title = %q, want Principal Engineer", got)
 	}
 
 	// A system_as_of before any anchor existed is an empty (not error) view.
-	ancient := get("/api/v1/anchors?system_as_of=2020-01-01&page_size=200")
+	ancient := get("/api/v1/nodes?system_as_of=2020-01-01&page_size=200")
 	if ancient.Page.TotalEstimate != 0 {
 		t.Errorf("system_as_of=2020 total = %d, want 0", ancient.Page.TotalEstimate)
 	}
@@ -140,7 +140,7 @@ func TestAnchorsAsOfDateOnly(t *testing.T) {
 
 	// A bare YYYY-MM-DD date is accepted (not a 400) and projected: 2020 is before
 	// every anchor's valid_from, so the projected view is empty.
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors?as_of=2020-01-01&page_size=200", "mock-admin-token")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes?as_of=2020-01-01&page_size=200", "mock-admin-token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -155,7 +155,7 @@ func TestAnchorsAsOfDateOnly(t *testing.T) {
 	}
 
 	// A mid-2026 date projects to a non-empty subset smaller than the current view.
-	rec = do(t, s, http.MethodGet, "/api/v1/anchors?as_of=2026-02-01&page_size=200", "mock-admin-token")
+	rec = do(t, s, http.MethodGet, "/api/v1/nodes?as_of=2026-02-01&page_size=200", "mock-admin-token")
 	decode(t, rec, &body)
 	if body.Page.TotalEstimate == 0 || body.Page.TotalEstimate >= 142 {
 		t.Errorf("as_of=2026-02-01 total = %d, want in (0,142)", body.Page.TotalEstimate)

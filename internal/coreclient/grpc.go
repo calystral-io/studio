@@ -1,8 +1,9 @@
 // gRPC CoreClient: dials Core's QueryService.Query, mints and forwards the
-// x-calystral-principal EdDSA JWT, and issues a "list node anchors" CyQL read.
+// x-calystral-principal EdDSA JWT, and issues a "list nodes" CyQL read (Core
+// models nodes as anchors internally).
 // Core returns UNIMPLEMENTED for every valid query today (a cvm opcode gap), so
 // PR1 maps that honest gap to the contract 501 /errors/upstream/unimplemented
-// with surface="anchors". We never fabricate rows - mirroring how Core itself
+// with surface="nodes". We never fabricate rows - mirroring how Core itself
 // reports the gap rather than faking a result.
 package coreclient
 
@@ -29,12 +30,12 @@ const principalMetadataKey = "x-calystral-principal"
 
 // Contract surface tags for upstream errors (params.surface).
 const (
-	anchorsSurface          = "anchors"
-	anchorHistorySurface    = "anchor_history"
-	anchorDiffSurface       = "anchor_diff"
-	anchorCreateSurface     = "anchor_create"
-	anchorCorrectSurface    = "anchor_correct"
-	anchorCloseSurface      = "anchor_close"
+	anchorsSurface          = "nodes"
+	anchorHistorySurface    = "node_history"
+	anchorDiffSurface       = "node_diff"
+	anchorCreateSurface     = "node_create"
+	anchorCorrectSurface    = "node_correct"
+	anchorCloseSurface      = "node_close"
 	ledgersSurface          = "ledgers"
 	ledgerEntriesSurface    = "ledger_entries"
 	clusterSummarySurface   = "cluster_summary"

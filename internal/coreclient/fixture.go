@@ -179,7 +179,7 @@ func (f *Fixture) GetAnchorHistory(_ context.Context, p GetAnchorHistoryParams) 
 	defer f.mu.RUnlock()
 	versions := f.versionsOf(p.TenantID, p.ID)
 	if len(versions) == 0 {
-		return nil, apierr.NotFound("anchor:" + p.ID)
+		return nil, apierr.NotFound("node:" + p.ID)
 	}
 	return &GetAnchorHistoryResult{Versions: versions, Source: SourceFixture}, nil
 }
@@ -192,7 +192,7 @@ func (f *Fixture) GetAnchorDiff(_ context.Context, p GetAnchorDiffParams) (*GetA
 	defer f.mu.RUnlock()
 	versions := f.versionsOf(p.TenantID, p.ID)
 	if len(versions) == 0 {
-		return nil, apierr.NotFound("anchor:" + p.ID)
+		return nil, apierr.NotFound("node:" + p.ID)
 	}
 	return &GetAnchorDiffResult{
 		FromVersion: resolveVersion(versions, p.FromValidAt, p.FromSystemAt),
@@ -365,7 +365,7 @@ func seedAnchors() []AnchorDTO {
 		vf := validFor(i)
 		name := fmt.Sprintf("%s %s", firstNames[i%len(firstNames)], lastNames[(i/2)%len(lastNames)])
 		a := AnchorDTO{
-			ID:       fmt.Sprintf("anchor_employee_%04d", i),
+			ID:       fmt.Sprintf("node_employee_%04d", i),
 			Type:     "Employee",
 			Label:    name,
 			TenantID: tenant,
@@ -420,7 +420,7 @@ func seedAnchors() []AnchorDTO {
 			name = name + " West"
 		}
 		a := AnchorDTO{
-			ID:       fmt.Sprintf("anchor_department_%04d", i),
+			ID:       fmt.Sprintf("node_department_%04d", i),
 			Type:     "Department",
 			Label:    name,
 			TenantID: tenant,
@@ -444,7 +444,7 @@ func seedAnchors() []AnchorDTO {
 		vf := validFor(i)
 		name := fmt.Sprintf("Project %s %d", projAdjs[i%len(projAdjs)], i)
 		a := AnchorDTO{
-			ID:       fmt.Sprintf("anchor_project_%04d", i),
+			ID:       fmt.Sprintf("node_project_%04d", i),
 			Type:     "Project",
 			Label:    name,
 			TenantID: tenant,
@@ -479,7 +479,7 @@ func seedAnchors() []AnchorDTO {
 		vf := validFor(i)
 		name := fmt.Sprintf("%s %s", companies[i%len(companies)], []string{"Corp", "Inc", "LLC"}[i%3])
 		a := AnchorDTO{
-			ID:       fmt.Sprintf("anchor_customer_%04d", i),
+			ID:       fmt.Sprintf("node_customer_%04d", i),
 			Type:     "Customer",
 			Label:    name,
 			TenantID: tenant,

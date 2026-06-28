@@ -29,7 +29,7 @@ func TestFixtureCreateAnchor(t *testing.T) {
 	before := f.Count()
 
 	res, err := f.CreateAnchor(ctx(), CreateAnchorParams{
-		TenantID: FixtureTenant, ID: "anchor_new_0001", Type: "Service", Label: "Billing",
+		TenantID: FixtureTenant, ID: "node_new_0001", Type: "Service", Label: "Billing",
 		Properties: map[string]any{"tier": "gold"},
 	})
 	if err != nil {
@@ -49,7 +49,7 @@ func TestFixtureCreateAnchor(t *testing.T) {
 	list, _ := f.ListAnchors(ctx(), ListAnchorsParams{TenantID: FixtureTenant, PageSize: 500})
 	found := false
 	for _, a := range list.Items {
-		if a.ID == "anchor_new_0001" {
+		if a.ID == "node_new_0001" {
 			found = true
 		}
 	}
@@ -58,26 +58,26 @@ func TestFixtureCreateAnchor(t *testing.T) {
 	}
 
 	// Duplicate id -> already_exists.
-	_, err = f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: "anchor_new_0001", Type: "Service", Label: "Dup"})
+	_, err = f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: "node_new_0001", Type: "Service", Label: "Dup"})
 	assertCode(t, err, apierr.CodeAlreadyExists)
 
 	// Same id in a different tenant is allowed (tenant-scoped uniqueness).
-	if _, err := f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: "other-tenant", ID: "anchor_new_0001", Type: "Service", Label: "Other"}); err != nil {
+	if _, err := f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: "other-tenant", ID: "node_new_0001", Type: "Service", Label: "Other"}); err != nil {
 		t.Errorf("cross-tenant create should succeed: %v", err)
 	}
 
 	// Property map is not aliased: mutating the input afterward doesn't change the store.
 	props := map[string]any{"k": "v"}
-	_, _ = f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: "anchor_iso", Type: "X", Label: "Y", Properties: props})
+	_, _ = f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: "node_iso", Type: "X", Label: "Y", Properties: props})
 	props["k"] = "mutated"
-	stored := currentVersion(t, f, "anchor_iso")
+	stored := currentVersion(t, f, "node_iso")
 	if stored.Properties["k"] != "v" {
 		t.Errorf("stored property aliased input map: %v", stored.Properties["k"])
 	}
 
 	// An explicit valid_from is honored.
 	vf := mustUTC("2026-01-01T00:00:00Z")
-	cr, err := f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: "anchor_vf", Type: "X", Label: "Y", ValidFrom: &vf})
+	cr, err := f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: "node_vf", Type: "X", Label: "Y", ValidFrom: &vf})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestFixtureCreateAnchor(t *testing.T) {
 
 func TestFixtureCorrectAnchor(t *testing.T) {
 	f := NewFixture()
-	const id = "anchor_employee_0001" // a single-version (uncorrected) anchor
+	const id = "node_employee_0001" // a single-version (uncorrected) anchor
 	orig := currentVersion(t, f, id)
 
 	newLabel := "Ada L. (corrected)"
@@ -144,13 +144,13 @@ func TestFixtureCorrectAnchor(t *testing.T) {
 	}
 
 	// Unknown id -> 404.
-	_, err = f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: "anchor_nope", Label: &newLabel})
+	_, err = f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: "node_nope", Label: &newLabel})
 	assertCode(t, err, apierr.CodeNotFound)
 }
 
 func TestFixtureCloseAnchor(t *testing.T) {
 	f := NewFixture()
-	const id = "anchor_employee_0002"
+	const id = "node_employee_0002"
 
 	res, err := f.CloseAnchor(ctx(), CloseAnchorParams{TenantID: FixtureTenant, ID: id})
 	if err != nil {
@@ -192,7 +192,7 @@ func TestFixtureMutationConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			id := "anchor_conc_" + string(rune('a'+n))
+			id := "node_conc_" + string(rune('a'+n))
 			_, _ = f.CreateAnchor(ctx(), CreateAnchorParams{TenantID: FixtureTenant, ID: id, Type: "X", Label: "L"})
 			label := "L2"
 			_, _ = f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: id, Label: &label})
@@ -202,14 +202,14 @@ func TestFixtureMutationConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_, _ = f.ListAnchors(ctx(), ListAnchorsParams{TenantID: FixtureTenant, PageSize: 500})
-			_, _ = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "anchor_employee_0001"})
+			_, _ = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "node_employee_0001"})
 		}()
 	}
 	wg.Wait()
 
 	// Each created id ends with exactly one current version (closed).
 	for i := 0; i < 16; i++ {
-		id := "anchor_conc_" + string(rune('a'+i))
+		id := "node_conc_" + string(rune('a'+i))
 		hist, err := f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: id})
 		if err != nil {
 			t.Fatalf("history %s: %v", id, err)
@@ -230,7 +230,7 @@ func TestFixtureMutationConcurrency(t *testing.T) {
 // -race, asserting the lock keeps exactly one current version.
 func TestFixtureConcurrentSameID(t *testing.T) {
 	f := NewFixture()
-	const id = "anchor_employee_0003"
+	const id = "node_employee_0003"
 	var wg sync.WaitGroup
 	const n = 20
 	for i := 0; i < n; i++ {

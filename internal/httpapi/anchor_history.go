@@ -22,7 +22,7 @@ type anchorHistorySummary struct {
 	ValidSegmentCount int `json:"valid_segment_count"` // distinct valid-time windows among current versions
 }
 
-// anchorHistoryResponse is the GET /anchors/{id}/history envelope (contract 4.1).
+// anchorHistoryResponse is the GET /nodes/{id}/history envelope (contract 4.1).
 type anchorHistoryResponse struct {
 	ID       string                 `json:"id"`
 	Type     string                 `json:"type"`
@@ -114,7 +114,7 @@ type fieldDelta struct {
 	After  any    `json:"after"`
 }
 
-// anchorDiffResponse is the GET /anchors/{id}/diff envelope (contract 4.2).
+// anchorDiffResponse is the GET /nodes/{id}/diff envelope (contract 4.2).
 type anchorDiffResponse struct {
 	ID     string       `json:"id"`
 	From   diffSide     `json:"from"`

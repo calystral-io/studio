@@ -157,10 +157,10 @@ func TestWriteEnvelope(t *testing.T) {
 		},
 		{
 			name:       "unimplemented surface",
-			err:        Unimplemented("anchors"),
+			err:        Unimplemented("nodes"),
 			wantStatus: http.StatusNotImplemented,
 			wantCode:   CodeUnimplemented,
-			wantParams: map[string]any{"surface": "anchors"},
+			wantParams: map[string]any{"surface": "nodes"},
 		},
 		{
 			name:       "non-apierror coerced to 500",

@@ -80,7 +80,7 @@ the PR1 default):
 | `mock-reader-token` | `demo-tenant` | `reader@demo` | `["reader"]` |
 | `mock-writer-token` | `demo-tenant` | `writer@demo` | `["writer","reader"]` |
 
-The `writer` role gates the anchor mutation surface (section 4.3); reads require
+The `writer` role gates the node mutation surface (section 4.3); reads require
 `reader`. `admin` is a superset that carries `writer`.
 
 - Missing `Authorization` header -> 401 `/errors/auth/missing_token`.
@@ -123,15 +123,15 @@ interface AuthContextValue {
 // useAuth() reads it; <AuthProvider> holds it; mock impl persists token in localStorage.
 ```
 
-## 3. Anchor DTO
+## 3. Node DTO
 
-A node anchor as the UI renders it. (Core models a node anchor; today Core's read
+A node as the UI renders it. (Core models a node; today Core's read
 path returns 501, so PR1's default data source is the BFF fixture. The DTO is the
 SAME whether sourced from fixture or, later, decoded from Core's cybr rows.)
 
 ```json
 {
-  "id": "anchor_01J8Z9...",
+  "id": "node_01J8Z9...",
   "type": "Employee",
   "label": "Ada Lovelace",
   "tenant_id": "demo-tenant",
@@ -158,7 +158,7 @@ SAME whether sourced from fixture or, later, decoded from Core's cybr rows.)
   `lsn`/`txn_id` integers.
 - `closed` bool: logically deleted (Core `MUTATION_KIND_CLOSE`).
 
-## 4. GET /api/v1/anchors (paginated anchors browser - PR1 headline feature)
+## 4. GET /api/v1/nodes (paginated nodes browser - PR1 headline feature)
 
 Query parameters:
 
@@ -169,7 +169,7 @@ Query parameters:
 | `type` | string | (none) | optional filter by node type |
 | `q` | string | (none) | optional case-insensitive substring over `label`+`properties` |
 | `as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional bitemporal valid-time projection (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_as_of` |
-| `system_as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional system-time (transaction-time) projection: the anchor versions the store knew at this instant (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_system_as_of` |
+| `system_as_of` | RFC3339 or `YYYY-MM-DD` | (none) | optional system-time (transaction-time) projection: the node versions the store knew at this instant (a bare date = start-of-UTC-day); malformed -> 400 `/errors/validation/invalid_system_as_of` |
 
 The two time axes are independent and compose (logical AND): `as_of` selects the
 business-time slice, `system_as_of` selects the decision-time slice. With
@@ -177,7 +177,7 @@ business-time slice, `system_as_of` selects the decision-time slice. With
 interval is still open (`system_to=null`), hiding superseded versions. Supplying
 a past `system_as_of` reveals the value as originally recorded, before any later
 correction (a different version of the same `id`). The system axis is
-anchors-only; ledger entries (section 10.2) carry no system-time columns and
+nodes-only; ledger entries (section 10.2) carry no system-time columns and
 accept only `as_of`.
 
 Cursor pagination (NOT offset): the cursor is an opaque base64url token the BFF
@@ -186,7 +186,7 @@ mints; the UI treats it as an opaque blob. First page omits `cursor`.
 Response 200:
 ```json
 {
-  "items": [ /* AnchorDTO ... */ ],
+  "items": [ /* GraphNodeDTO ... */ ],
   "page": {
     "page_size": 25,
     "next_cursor": "eyJvIjoyNX0",
@@ -205,7 +205,7 @@ Response 200:
 
 Behavior when `STUDIO_CORE_SOURCE=grpc` and Core returns UNIMPLEMENTED (the honest
 gap today): the BFF returns 501 `/errors/upstream/unimplemented` with
-`params.surface="anchors"`. The UI renders a localized "not yet available
+`params.surface="nodes"`. The UI renders a localized "not yet available
 upstream" empty state. (PR1 default is `fixture`, so the happy path shows real
 paginated data; the 501 path is covered by an integration test against a stub
 Core.)
@@ -213,21 +213,21 @@ Core.)
 Auth: requires a valid token (any role with `reader`). Results scoped to the
 principal's `tenant_id`.
 
-## 4.1 GET /api/v1/anchors/{id}/history (bitemporal version timeline)
+## 4.1 GET /api/v1/nodes/{id}/history (bitemporal version timeline)
 
-Returns the full set of stored versions of one anchor id (every valid- and
+Returns the full set of stored versions of one node id (every valid- and
 system-time version), ordered by `(valid_from, system_from, lsn)` ascending. The
 version set is small and bounded, so the response is not paginated. 404
-`/errors/not_found` (`resource="anchor:<id>"`) when the id has no versions in the
+`/errors/not_found` (`resource="node:<id>"`) when the id has no versions in the
 tenant.
 
 Response 200:
 ```json
 {
-  "id": "anchor_employee_0018",
+  "id": "node_employee_0018",
   "type": "Employee",
   "tenant_id": "demo-tenant",
-  "versions": [ /* AnchorDTO ... ordered oldest-first */ ],
+  "versions": [ /* GraphNodeDTO ... ordered oldest-first */ ],
   "summary": {
     "version_count": 2,
     "current_count": 1,
@@ -238,19 +238,19 @@ Response 200:
 }
 ```
 
-- `versions`: each is a full `AnchorDTO` (section 3) carrying both intervals.
+- `versions`: each is a full `GraphNodeDTO` (section 3) carrying both intervals.
 - `summary.current_count`: versions whose system interval is open (`system_to=null`).
 - `summary.superseded_count`: versions corrected away (`system_to` set).
 - `summary.valid_segment_count`: distinct valid-time windows among the current versions.
 
 Auth: `reader`, tenant-scoped. gRPC source returns 501
-`/errors/upstream/unimplemented` with `params.surface="anchor_history"` (see
-section 0 - the read pipeline + anchor-row wire format are not in Core yet).
+`/errors/upstream/unimplemented` with `params.surface="node_history"` (see
+section 0 - the read pipeline + node-row wire format are not in Core yet).
 
-## 4.2 GET /api/v1/anchors/{id}/diff (as-of field-level diff)
+## 4.2 GET /api/v1/nodes/{id}/diff (as-of field-level diff)
 
-Resolves the anchor at TWO bitemporal coordinates and returns the field-level
-delta between them - "what changed about this anchor between belief-state A and
+Resolves the node at TWO bitemporal coordinates and returns the field-level
+delta between them - "what changed about this node between belief-state A and
 belief-state B".
 
 Query parameters:
@@ -272,14 +272,14 @@ at all in the tenant.
 Response 200:
 ```json
 {
-  "id": "anchor_employee_0018",
+  "id": "node_employee_0018",
   "from": {
     "coordinate": { "as_of": "2026-05-01T00:00:00Z", "system_as_of": "2026-06-19T00:00:00Z" },
-    "version": { /* AnchorDTO or null */ }
+    "version": { /* GraphNodeDTO or null */ }
   },
   "to": {
     "coordinate": { "as_of": "2026-05-01T00:00:00Z", "system_as_of": null },
-    "version": { /* AnchorDTO or null */ }
+    "version": { /* GraphNodeDTO or null */ }
   },
   "deltas": [
     { "field": "closed", "op": "changed", "before": false, "after": true },
@@ -299,9 +299,9 @@ Response 200:
   by key ascending.
 
 Auth: `reader`, tenant-scoped. gRPC source returns 501 with
-`params.surface="anchor_diff"`.
+`params.surface="node_diff"`.
 
-## 4.3 Anchor mutations (PR10 — create / correct / close)
+## 4.3 Node mutations (PR10 — create / correct / close)
 
 Studio's write surface. All three require the **`writer`** role (reads require
 `reader`; `admin` carries both). They are backed by a **stateful fixture** in
@@ -311,26 +311,26 @@ bitemporal versions the history/diff surfaces render.
 
 | method | path | role | success | semantics |
 |---|---|---|---|---|
-| `POST` | `/api/v1/anchors` | writer | `201` | create a new open anchor version |
-| `POST` | `/api/v1/anchors/{id}/corrections` | writer | `200` | system-time correction (supersede + new current) |
-| `POST` | `/api/v1/anchors/{id}/close` | writer | `200` | logical close in valid-time (`valid_to` + `closed`) |
+| `POST` | `/api/v1/nodes` | writer | `201` | create a new open node version |
+| `POST` | `/api/v1/nodes/{id}/corrections` | writer | `200` | system-time correction (supersede + new current) |
+| `POST` | `/api/v1/nodes/{id}/close` | writer | `200` | logical close in valid-time (`valid_to` + `closed`) |
 
 Request bodies:
 ```json
-// POST /anchors
-{ "id": "anchor_x", "type": "Service", "label": "Billing",
+// POST /nodes
+{ "id": "node_x", "type": "Service", "label": "Billing",
   "properties": { "tier": "gold" }, "valid_from": "2026-01-01" }   // valid_from optional (RFC3339 or YYYY-MM-DD), default now
-// POST /anchors/{id}/corrections
+// POST /nodes/{id}/corrections
 { "label": "New label", "properties": { ... }, "expected_lsn": 4203 }  // label/properties each optional (>=1 required); properties is FULL replace; expected_lsn optional
-// POST /anchors/{id}/close
+// POST /nodes/{id}/close
 { "valid_to": "2026-12-31", "expected_lsn": 4203 }                  // both optional; valid_to default now
 ```
 
-Response (all three): the resulting **current** `AnchorDTO`, plus the prior
+Response (all three): the resulting **current** `GraphNodeDTO`, plus the prior
 version for correct/close:
 ```json
-{ "anchor": { /* AnchorDTO ... current */ },
-  "superseded": { /* AnchorDTO ... prior, system_to set */ },   // omitted on create
+{ "node": { /* GraphNodeDTO ... current */ },
+  "superseded": { /* GraphNodeDTO ... prior, system_to set */ },   // omitted on create
   "source": "fixture" }
 ```
 
@@ -350,10 +350,10 @@ Omitting it is last-writer-wins.
 **Errors:** `400` `/errors/validation/invalid_request` (`params.field`) for a
 malformed body, a missing `id`/`type`/`label` on create, a bad
 `valid_from`/`valid_to`, an empty correction, or closing an already-closed
-anchor; `409` `/errors/conflict/already_exists` (`params.resource`) for a
+node; `409` `/errors/conflict/already_exists` (`params.resource`) for a
 duplicate create id (id uniqueness is tenant-scoped); `404` `/errors/not_found`
 for correct/close of an unknown id; `403` for a non-writer. gRPC source returns
-`501` with `params.surface` ∈ {`anchor_create`,`anchor_correct`,`anchor_close`}
+`501` with `params.surface` ∈ {`node_create`,`node_correct`,`node_close`}
 (Core's mutate path + a cybr encoder are not implemented — the write-side analogue
 of the read decoder gap).
 
@@ -437,7 +437,7 @@ env vars; env wins per 12-factor unless flag explicitly set.
 ## 9. Ledger DTOs (PR2)
 
 A ledger is a named, append-only, bitemporal entry log in the tenant catalog
-(e.g. `GeneralLedger`). Like anchors, the DTO is the SAME whether sourced from the
+(e.g. `GeneralLedger`). Like nodes, the DTO is the SAME whether sourced from the
 BFF fixture (PR2 default) or, later, decoded from Core's cybr rows; today Core's
 read path returns 501, so the default data source is the fixture.
 
@@ -477,7 +477,7 @@ One append-only, bitemporal entry in a ledger.
   "kind": "posting",
   "summary": "Posting #1 to account 4000-Revenue",
   "actor": "admin@demo",
-  "anchor_id": "anchor_employee_0003",
+  "node_id": "node_employee_0003",
   "recorded_at": "2026-01-02T08:00:00Z",
   "effective_from": "2026-01-04T00:00:00Z",
   "effective_to": null,
@@ -494,7 +494,7 @@ One append-only, bitemporal entry in a ledger.
 - `kind` string: entry classification (filterable; e.g. `posting|reversal|login|created`).
 - `summary` human-readable one-line description.
 - `actor` string: the principal `user_id` that appended the entry.
-- `anchor_id` string|null: optional reference to a related node anchor.
+- `node_id` string|null: optional reference to a related node.
 - `recorded_at` RFC3339: system (decision/transaction) time the entry was appended.
 - Bitemporal valid time: `effective_from`/`effective_to` (business time;
   `effective_to=null` => still in effect / open).
@@ -517,7 +517,7 @@ Query parameters:
 | `cursor` | string | (none) | opaque forward cursor from a prior `next_cursor`; invalid -> 400 |
 | `q` | string | (none) | optional case-insensitive substring over `name`+`description` |
 
-Response 200 (same envelope as anchors):
+Response 200 (same envelope as nodes):
 ```json
 {
   "items": [ /* LedgerSummary ... */ ],
@@ -567,7 +567,7 @@ against a stub Core.)
 
 The cluster view is an OPERATOR observability surface over the cvm cluster
 (per-shard Raft groups, key-range sharding, replicas across regions, storage
-tiers). Unlike anchors/ledgers it is LIVE state, NOT bitemporal: every DTO carries
+tiers). Unlike nodes/ledgers it is LIVE state, NOT bitemporal: every DTO carries
 an `observed_at` snapshot instant and no valid/system time. The cluster is shared
 operator infrastructure, so it is NOT tenant-scoped. All endpoints require
 `reader`.
