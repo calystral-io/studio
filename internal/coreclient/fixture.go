@@ -9,14 +9,26 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/calystral-io/studio/internal/apierr"
 )
 
-// Fixture is the in-memory anchor, ledger, and cluster source.
+// Fixture is the in-memory anchor, ledger, and cluster source. The anchor set is
+// MUTABLE (PR10 create/correct/close), so all anchor access is guarded by mu:
+// reads take RLock, mutations take Lock. The other (read-only) sets are never
+// mutated and need no lock.
 type Fixture struct {
-	anchors []AnchorDTO
+	mu sync.RWMutex
+	// nextLSNVal is the monotonic decision-LSN counter for runtime mutations,
+	// seeded above the max seeded LSN so runtime rows never collide with seed rows.
+	nextLSNVal int64
+	// lastMutationAt is the previous mutation's system instant; the next is forced
+	// strictly after it so no two versions share a system boundary (which would
+	// create a zero-width interval and break the non-overlap invariant).
+	lastMutationAt time.Time
+	anchors        []AnchorDTO
 	// ledgers is the catalog in stable name order; entries maps each ledger
 	// name to its entries in ascending lsn (append) order.
 	ledgers []LedgerSummary
@@ -49,19 +61,34 @@ func NewFixture() *Fixture {
 	nodes, shards, summary := seedCluster()
 	opcodes, planCache, runtime := seedRuntime()
 	channels, subscriptions, messaging := seedMessaging()
+	anchors := seedAnchors()
+	maxLSN := int64(0)
+	var maxSystemFrom time.Time
+	for _, a := range anchors {
+		if a.LSN > maxLSN {
+			maxLSN = a.LSN
+		}
+		if a.SystemFrom.After(maxSystemFrom) {
+			maxSystemFrom = a.SystemFrom
+		}
+	}
 	return &Fixture{
-		anchors:       seedAnchors(),
-		ledgers:       ledgers,
-		entries:       entries,
-		nodes:         nodes,
-		shards:        shards,
-		summary:       summary,
-		opcodes:       opcodes,
-		planCache:     planCache,
-		runtime:       runtime,
-		channels:      channels,
-		subscriptions: subscriptions,
-		messaging:     messaging,
+		nextLSNVal: maxLSN,
+		// Seed the mutation clock past the latest seeded system_from so the first
+		// runtime mutation can never invert a seed row's system interval.
+		lastMutationAt: maxSystemFrom,
+		anchors:        anchors,
+		ledgers:        ledgers,
+		entries:        entries,
+		nodes:          nodes,
+		shards:         shards,
+		summary:        summary,
+		opcodes:        opcodes,
+		planCache:      planCache,
+		runtime:        runtime,
+		channels:       channels,
+		subscriptions:  subscriptions,
+		messaging:      messaging,
 	}
 }
 
@@ -74,8 +101,12 @@ func (f *Fixture) CheckCore(_ context.Context) string { return CheckSkip }
 // Close implements CoreClient; the fixture holds no resources.
 func (f *Fixture) Close() error { return nil }
 
-// Count returns the total number of seeded anchors (test/diagnostic helper).
-func (f *Fixture) Count() int { return len(f.anchors) }
+// Count returns the total number of stored anchor versions (test/diagnostic).
+func (f *Fixture) Count() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.anchors)
+}
 
 // ListAnchors applies tenant scoping, filters, valid-time projection, then
 // cursor pagination over a stable id sort.
@@ -84,6 +115,9 @@ func (f *Fixture) ListAnchors(_ context.Context, p ListAnchorsParams) (*ListAnch
 	if err != nil {
 		return nil, err
 	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	q := strings.ToLower(strings.TrimSpace(p.Q))
 	filtered := make([]AnchorDTO, 0, len(f.anchors))
@@ -141,6 +175,8 @@ func (f *Fixture) ListAnchors(_ context.Context, p ListAnchorsParams) (*ListAnch
 // principal's tenant, ordered by (valid_from, system_from, lsn) ascending for a
 // stable timeline. A 404 is returned when the id has no versions in the tenant.
 func (f *Fixture) GetAnchorHistory(_ context.Context, p GetAnchorHistoryParams) (*GetAnchorHistoryResult, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	versions := f.versionsOf(p.TenantID, p.ID)
 	if len(versions) == 0 {
 		return nil, apierr.NotFound("anchor:" + p.ID)
@@ -152,6 +188,8 @@ func (f *Fixture) GetAnchorHistory(_ context.Context, p GetAnchorHistoryParams) 
 // the version at each (nil when no version exists at that coordinate). A 404 is
 // returned only when the id has no versions at all in the tenant.
 func (f *Fixture) GetAnchorDiff(_ context.Context, p GetAnchorDiffParams) (*GetAnchorDiffResult, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	versions := f.versionsOf(p.TenantID, p.ID)
 	if len(versions) == 0 {
 		return nil, apierr.NotFound("anchor:" + p.ID)

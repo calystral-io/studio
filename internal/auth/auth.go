@@ -48,10 +48,12 @@ type mockToken struct {
 	roles    []string
 }
 
-// mockTokens is the contract section 2 token map.
+// mockTokens is the contract section 2 token map. The `writer` role gates the
+// anchor mutation surface (PR10); admin is a superset that also carries it.
 var mockTokens = map[string]mockToken{
-	"mock-admin-token":  {tenantID: "demo-tenant", userID: "admin@demo", roles: []string{"admin", "reader"}},
+	"mock-admin-token":  {tenantID: "demo-tenant", userID: "admin@demo", roles: []string{"admin", "reader", "writer"}},
 	"mock-reader-token": {tenantID: "demo-tenant", userID: "reader@demo", roles: []string{"reader"}},
+	"mock-writer-token": {tenantID: "demo-tenant", userID: "writer@demo", roles: []string{"writer", "reader"}},
 }
 
 // MockAuthenticator implements Authenticator with the static PR1 token map.
