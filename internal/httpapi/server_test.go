@@ -151,7 +151,7 @@ func TestMe(t *testing.T) {
 		if body.UserID != "admin@demo" || body.TenantID != "demo-tenant" {
 			t.Errorf("body = %+v", body)
 		}
-		if len(body.Roles) != 2 {
+		if len(body.Roles) != 3 {
 			t.Errorf("roles = %v", body.Roles)
 		}
 	})

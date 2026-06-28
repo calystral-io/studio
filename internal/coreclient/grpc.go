@@ -32,6 +32,9 @@ const (
 	anchorsSurface          = "anchors"
 	anchorHistorySurface    = "anchor_history"
 	anchorDiffSurface       = "anchor_diff"
+	anchorCreateSurface     = "anchor_create"
+	anchorCorrectSurface    = "anchor_correct"
+	anchorCloseSurface      = "anchor_close"
 	ledgersSurface          = "ledgers"
 	ledgerEntriesSurface    = "ledger_entries"
 	clusterSummarySurface   = "cluster_summary"
@@ -170,6 +173,35 @@ func (c *GRPCClient) GetAnchorDiff(_ context.Context, p GetAnchorDiffParams) (*G
 	}
 	// TODO(PR-core-decode): resolve both coordinates server-side once reads land.
 	return nil, apierr.Unimplemented(anchorDiffSurface)
+}
+
+// CreateAnchor would issue an anchor-create mutation to Core. Writing needs a
+// cybr Mutation.Payload encoder we don't have (the symmetric gap to the missing
+// read decoder), and Core's mutate path is unimplemented, so it reports 501.
+// TODO(PR-core-mutate): wire mutatepb.NewMutateServiceClient + the cybr encoder.
+func (c *GRPCClient) CreateAnchor(_ context.Context, p CreateAnchorParams) (*AnchorMutationResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+	return nil, apierr.Unimplemented(anchorCreateSurface)
+}
+
+// CorrectAnchor would issue an anchor-correction mutation to Core. 501 today
+// (same gap as CreateAnchor).
+func (c *GRPCClient) CorrectAnchor(_ context.Context, p CorrectAnchorParams) (*AnchorMutationResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+	return nil, apierr.Unimplemented(anchorCorrectSurface)
+}
+
+// CloseAnchor would issue an anchor-close mutation to Core. 501 today (same gap
+// as CreateAnchor).
+func (c *GRPCClient) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMutationResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+	return nil, apierr.Unimplemented(anchorCloseSurface)
 }
 
 // ListLedgers mints the principal JWT, issues the list-ledgers CyQL read, and

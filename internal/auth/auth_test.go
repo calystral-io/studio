@@ -51,7 +51,14 @@ func TestMockAuthenticate(t *testing.T) {
 			authHeader: "Bearer mock-admin-token",
 			setHeader:  true,
 			wantUser:   "admin@demo",
-			wantRoles:  []string{"admin", "reader"},
+			wantRoles:  []string{"admin", "reader", "writer"},
+		},
+		{
+			name:       "valid writer token",
+			authHeader: "Bearer mock-writer-token",
+			setHeader:  true,
+			wantUser:   "writer@demo",
+			wantRoles:  []string{"writer", "reader"},
 		},
 		{
 			name:       "valid reader token case-insensitive scheme",

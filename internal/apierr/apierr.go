@@ -22,6 +22,9 @@ const (
 	CodeInvalidAsOf        Code = "/errors/validation/invalid_as_of"
 	CodeInvalidSystemAsOf  Code = "/errors/validation/invalid_system_as_of"
 	CodeInvalidLSNRange    Code = "/errors/validation/invalid_lsn_range"
+	CodeInvalidRequest     Code = "/errors/validation/invalid_request"
+	CodeAlreadyExists      Code = "/errors/conflict/already_exists"
+	CodePreconditionFailed Code = "/errors/conflict/precondition_failed"
 	CodeMissingToken       Code = "/errors/auth/missing_token"
 	CodeInvalidToken       Code = "/errors/auth/invalid_token"
 	CodeForbidden          Code = "/errors/auth/forbidden"
@@ -46,6 +49,9 @@ var Registry = map[Code]Descriptor{
 	CodeInvalidAsOf:        {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"value"}},
 	CodeInvalidSystemAsOf:  {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"value"}},
 	CodeInvalidLSNRange:    {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"from", "to"}},
+	CodeInvalidRequest:     {HTTPStatus: http.StatusBadRequest, ParamKeys: []string{"field"}},
+	CodeAlreadyExists:      {HTTPStatus: http.StatusConflict, ParamKeys: []string{"resource"}},
+	CodePreconditionFailed: {HTTPStatus: http.StatusConflict, ParamKeys: []string{"expected", "actual"}},
 	CodeMissingToken:       {HTTPStatus: http.StatusUnauthorized, ParamKeys: []string{}},
 	CodeInvalidToken:       {HTTPStatus: http.StatusUnauthorized, ParamKeys: []string{}},
 	CodeForbidden:          {HTTPStatus: http.StatusForbidden, ParamKeys: []string{}},
@@ -114,6 +120,27 @@ func InvalidLSNRange(from, to int64) *APIError {
 	return New(CodeInvalidLSNRange,
 		fmt.Sprintf("invalid lsn range: from_lsn %d is greater than to_lsn %d", from, to),
 		map[string]any{"from": from, "to": to})
+}
+
+// InvalidRequest reports a malformed or semantically invalid mutation request,
+// naming the offending field. reason is the developer-facing detail.
+func InvalidRequest(field, reason string) *APIError {
+	return New(CodeInvalidRequest, fmt.Sprintf("invalid request: %s: %s", field, reason),
+		map[string]any{"field": field})
+}
+
+// AlreadyExists reports a create against an id that already exists in the tenant.
+func AlreadyExists(resource string) *APIError {
+	return New(CodeAlreadyExists, fmt.Sprintf("%s already exists", resource),
+		map[string]any{"resource": resource})
+}
+
+// PreconditionFailed reports a stale optimistic-concurrency precondition: the
+// caller's expected lsn no longer matches the current version's actual lsn.
+func PreconditionFailed(expected, actual int64) *APIError {
+	return New(CodePreconditionFailed,
+		fmt.Sprintf("precondition failed: expected lsn %d but current is %d", expected, actual),
+		map[string]any{"expected": expected, "actual": actual})
 }
 
 // MissingToken reports an absent Authorization header.

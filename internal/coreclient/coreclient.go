@@ -625,12 +625,58 @@ type GetAnchorDiffResult struct {
 	Source      string
 }
 
+// CreateAnchorParams is a new-anchor mutation. ValidFrom is optional (nil = the
+// mutation instant). Properties may be nil (treated as empty).
+type CreateAnchorParams struct {
+	TenantID   string
+	ID         string
+	Type       string
+	Label      string
+	Properties map[string]any
+	ValidFrom  *time.Time
+	Principal  *auth.Principal
+}
+
+// CorrectAnchorParams is a system-time correction of an anchor's content. A nil
+// Label/Properties means "unchanged"; a non-nil Properties is a FULL replace.
+// ExpectedLSN, when set, is an optimistic-concurrency precondition on the
+// current version's lsn.
+type CorrectAnchorParams struct {
+	TenantID    string
+	ID          string
+	Label       *string
+	Properties  map[string]any
+	ExpectedLSN *int64
+	Principal   *auth.Principal
+}
+
+// CloseAnchorParams logically closes an anchor in valid-time. ValidTo is
+// optional (nil = the mutation instant). ExpectedLSN is an optional precondition.
+type CloseAnchorParams struct {
+	TenantID    string
+	ID          string
+	ValidTo     *time.Time
+	ExpectedLSN *int64
+	Principal   *auth.Principal
+}
+
+// AnchorMutationResult is the resulting current version plus, for correct/close,
+// the prior version that was superseded.
+type AnchorMutationResult struct {
+	Anchor     AnchorDTO
+	Superseded *AnchorDTO
+	Source     string
+}
+
 // CoreClient is the read-path port. CheckCore reports the readiness status the
 // /readyz endpoint surfaces.
 type CoreClient interface {
 	ListAnchors(ctx context.Context, p ListAnchorsParams) (*ListAnchorsResult, error)
 	GetAnchorHistory(ctx context.Context, p GetAnchorHistoryParams) (*GetAnchorHistoryResult, error)
 	GetAnchorDiff(ctx context.Context, p GetAnchorDiffParams) (*GetAnchorDiffResult, error)
+	CreateAnchor(ctx context.Context, p CreateAnchorParams) (*AnchorMutationResult, error)
+	CorrectAnchor(ctx context.Context, p CorrectAnchorParams) (*AnchorMutationResult, error)
+	CloseAnchor(ctx context.Context, p CloseAnchorParams) (*AnchorMutationResult, error)
 	ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error)
 	ListLedgerEntries(ctx context.Context, p ListLedgerEntriesParams) (*ListLedgerEntriesResult, error)
 	ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error)

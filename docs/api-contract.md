@@ -48,6 +48,9 @@ Canonical error codes shipped in PR1 (each MUST have an `en` translation):
 | 400 | `/errors/validation/invalid_as_of` | `value` |
 | 400 | `/errors/validation/invalid_system_as_of` | `value` |
 | 400 | `/errors/validation/invalid_lsn_range` | `from,to` |
+| 400 | `/errors/validation/invalid_request` | `field` |
+| 409 | `/errors/conflict/already_exists` | `resource` |
+| 409 | `/errors/conflict/precondition_failed` | `expected,actual` |
 | 401 | `/errors/auth/missing_token` | `{}` |
 | 401 | `/errors/auth/invalid_token` | `{}` |
 | 403 | `/errors/auth/forbidden` | `{}` |
@@ -73,8 +76,12 @@ the PR1 default):
 
 | token | tenant_id | user_id | roles |
 |---|---|---|---|
-| `mock-admin-token` | `demo-tenant` | `admin@demo` | `["admin","reader"]` |
+| `mock-admin-token` | `demo-tenant` | `admin@demo` | `["admin","reader","writer"]` |
 | `mock-reader-token` | `demo-tenant` | `reader@demo` | `["reader"]` |
+| `mock-writer-token` | `demo-tenant` | `writer@demo` | `["writer","reader"]` |
+
+The `writer` role gates the anchor mutation surface (section 4.3); reads require
+`reader`. `admin` is a superset that carries `writer`.
 
 - Missing `Authorization` header -> 401 `/errors/auth/missing_token`.
 - Unrecognized token -> 401 `/errors/auth/invalid_token`.
@@ -293,6 +300,62 @@ Response 200:
 
 Auth: `reader`, tenant-scoped. gRPC source returns 501 with
 `params.surface="anchor_diff"`.
+
+## 4.3 Anchor mutations (PR10 — create / correct / close)
+
+Studio's write surface. All three require the **`writer`** role (reads require
+`reader`; `admin` carries both). They are backed by a **stateful fixture** in
+mock mode — a write is immediately reflected in the read surfaces (list, history,
+diff), honestly tagged `source:"fixture"`. Each mutation produces the same
+bitemporal versions the history/diff surfaces render.
+
+| method | path | role | success | semantics |
+|---|---|---|---|---|
+| `POST` | `/api/v1/anchors` | writer | `201` | create a new open anchor version |
+| `POST` | `/api/v1/anchors/{id}/corrections` | writer | `200` | system-time correction (supersede + new current) |
+| `POST` | `/api/v1/anchors/{id}/close` | writer | `200` | logical close in valid-time (`valid_to` + `closed`) |
+
+Request bodies:
+```json
+// POST /anchors
+{ "id": "anchor_x", "type": "Service", "label": "Billing",
+  "properties": { "tier": "gold" }, "valid_from": "2026-01-01" }   // valid_from optional (RFC3339 or YYYY-MM-DD), default now
+// POST /anchors/{id}/corrections
+{ "label": "New label", "properties": { ... }, "expected_lsn": 4203 }  // label/properties each optional (>=1 required); properties is FULL replace; expected_lsn optional
+// POST /anchors/{id}/close
+{ "valid_to": "2026-12-31", "expected_lsn": 4203 }                  // both optional; valid_to default now
+```
+
+Response (all three): the resulting **current** `AnchorDTO`, plus the prior
+version for correct/close:
+```json
+{ "anchor": { /* AnchorDTO ... current */ },
+  "superseded": { /* AnchorDTO ... prior, system_to set */ },   // omitted on create
+  "source": "fixture" }
+```
+
+**Bitemporal transitions:**
+- CREATE — appends one open version (`system_from=now`, `system_to=null`,
+  `valid_to=null`, `closed=false`).
+- CORRECT — closes the current version's system interval at the mutation instant
+  and appends a new current version with the corrected `label`/`properties`; the
+  valid window is unchanged. This is exactly the supersession history/diff render.
+- CLOSE — same supersession, the new current version carries `valid_to` + `closed=true`.
+
+**Optimistic concurrency:** `expected_lsn` (optional) on correct/close is checked
+against the current version's `lsn` under the write lock; a mismatch is `409`
+`/errors/conflict/precondition_failed` (`params.expected`, `params.actual`).
+Omitting it is last-writer-wins.
+
+**Errors:** `400` `/errors/validation/invalid_request` (`params.field`) for a
+malformed body, a missing `id`/`type`/`label` on create, a bad
+`valid_from`/`valid_to`, an empty correction, or closing an already-closed
+anchor; `409` `/errors/conflict/already_exists` (`params.resource`) for a
+duplicate create id (id uniqueness is tenant-scoped); `404` `/errors/not_found`
+for correct/close of an unknown id; `403` for a non-writer. gRPC source returns
+`501` with `params.surface` ∈ {`anchor_create`,`anchor_correct`,`anchor_close`}
+(Core's mutate path + a cybr encoder are not implemented — the write-side analogue
+of the read decoder gap).
 
 ## 5. Infra + identity endpoints
 
