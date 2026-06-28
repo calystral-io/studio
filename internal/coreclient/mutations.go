@@ -76,7 +76,7 @@ func (f *Fixture) CreateAnchor(_ context.Context, p CreateAnchorParams) (*Anchor
 	// (every supersede pairs with a new open row) makes this a full existence
 	// check.
 	if f.currentIndex(p.TenantID, p.ID) != -1 {
-		return nil, apierr.AlreadyExists("anchor:" + p.ID)
+		return nil, apierr.AlreadyExists("node:" + p.ID)
 	}
 
 	at := f.mutationInstant()
@@ -110,7 +110,7 @@ func (f *Fixture) CorrectAnchor(_ context.Context, p CorrectAnchorParams) (*Anch
 
 	idx := f.currentIndex(p.TenantID, p.ID)
 	if idx < 0 {
-		return nil, apierr.NotFound("anchor:" + p.ID)
+		return nil, apierr.NotFound("node:" + p.ID)
 	}
 	cur := f.anchors[idx]
 	if p.ExpectedLSN != nil && *p.ExpectedLSN != cur.LSN {
@@ -150,11 +150,11 @@ func (f *Fixture) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMu
 
 	idx := f.currentIndex(p.TenantID, p.ID)
 	if idx < 0 {
-		return nil, apierr.NotFound("anchor:" + p.ID)
+		return nil, apierr.NotFound("node:" + p.ID)
 	}
 	cur := f.anchors[idx]
 	if cur.Closed {
-		return nil, apierr.InvalidRequest("closed", "anchor is already closed; use a correction to change it")
+		return nil, apierr.InvalidRequest("closed", "node is already closed; use a correction to change it")
 	}
 	if p.ExpectedLSN != nil && *p.ExpectedLSN != cur.LSN {
 		return nil, apierr.PreconditionFailed(*p.ExpectedLSN, cur.LSN)
@@ -168,7 +168,7 @@ func (f *Fixture) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMu
 	// A valid_to before the anchor's valid_from would make a negative-width valid
 	// interval that no projection could ever resolve — reject it.
 	if validTo.Before(cur.ValidFrom) {
-		return nil, apierr.InvalidRequest("valid_to", "must not be before the anchor's valid_from")
+		return nil, apierr.InvalidRequest("valid_to", "must not be before the node's valid_from")
 	}
 	lsn := f.nextLSN()
 

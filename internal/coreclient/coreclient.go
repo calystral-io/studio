@@ -103,7 +103,7 @@ type LedgerEntry struct {
 	Kind          string         `json:"kind"`
 	Summary       string         `json:"summary"`
 	Actor         string         `json:"actor"`
-	AnchorID      *string        `json:"anchor_id"`
+	AnchorID      *string        `json:"node_id"`
 	RecordedAt    time.Time      `json:"recorded_at"`
 	EffectiveFrom time.Time      `json:"effective_from"`
 	EffectiveTo   *time.Time     `json:"effective_to"`

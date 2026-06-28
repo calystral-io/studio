@@ -200,9 +200,9 @@ func TestFixtureSystemTimeProjection(t *testing.T) {
 			t.Errorf("current view leaked a superseded row: %s", a.ID)
 		}
 	}
-	curTitle, ok := findTitle(cur.Items, "anchor_employee_0009")
+	curTitle, ok := findTitle(cur.Items, "node_employee_0009")
 	if !ok {
-		t.Fatal("anchor_employee_0009 missing from current view")
+		t.Fatal("node_employee_0009 missing from current view")
 	}
 	if curTitle != "Engineering Manager" {
 		t.Errorf("current title = %q, want Engineering Manager", curTitle)
@@ -219,9 +219,9 @@ func TestFixtureSystemTimeProjection(t *testing.T) {
 	if past.Page.TotalEstimate != 142 {
 		t.Fatalf("system_as_of=2026-06-19 total = %d, want 142 (every id has one version then)", past.Page.TotalEstimate)
 	}
-	pastTitle, ok := findTitle(past.Items, "anchor_employee_0009")
+	pastTitle, ok := findTitle(past.Items, "node_employee_0009")
 	if !ok {
-		t.Fatal("anchor_employee_0009 missing from pre-correction view")
+		t.Fatal("node_employee_0009 missing from pre-correction view")
 	}
 	if pastTitle != "Principal Engineer" {
 		t.Errorf("pre-correction title = %q, want Principal Engineer", pastTitle)
@@ -259,7 +259,7 @@ func TestFixtureSystemTimeBoundary(t *testing.T) {
 		t.Fatalf("system_as_of=correction-instant total = %d, want 142", res.Page.TotalEstimate)
 	}
 	for _, a := range res.Items {
-		if a.ID == "anchor_employee_0009" {
+		if a.ID == "node_employee_0009" {
 			if title, _ := a.Properties["title"].(string); title != "Engineering Manager" {
 				t.Errorf("at correction instant title = %q, want current Engineering Manager", title)
 			}
@@ -272,9 +272,9 @@ func TestFixtureSystemTimeBoundary(t *testing.T) {
 
 func TestFixtureBothAxesCompose(t *testing.T) {
 	f := NewFixture()
-	// anchor_employee_0009 has valid_from 2026-05-19 and a system correction at
+	// node_employee_0009 has valid_from 2026-05-19 and a system correction at
 	// 2026-06-20. The two axes compose as a logical AND.
-	const id = "anchor_employee_0009"
+	const id = "node_employee_0009"
 	titleOf := func(items []AnchorDTO) (string, bool) {
 		for _, a := range items {
 			if a.ID == id {
@@ -355,7 +355,7 @@ func TestFixtureAnchorHistory(t *testing.T) {
 
 	// employee_0018 was corrected: a prior open version (old title) plus a
 	// current closed version (corrected title) — two system-versions of one id.
-	res, err := f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "anchor_employee_0018"})
+	res, err := f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "node_employee_0018"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,11 +374,11 @@ func TestFixtureAnchorHistory(t *testing.T) {
 	}
 
 	// Unknown id -> 404.
-	_, err = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "anchor_nope"})
+	_, err = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "node_nope"})
 	assertNotFound(t, err)
 
 	// Foreign tenant -> 404 (no cross-tenant existence leak).
-	_, err = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: "other-tenant", ID: "anchor_employee_0018"})
+	_, err = f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: "other-tenant", ID: "node_employee_0018"})
 	assertNotFound(t, err)
 }
 
@@ -391,7 +391,7 @@ func TestFixtureAnchorDiff(t *testing.T) {
 	// from = pre-correction (system 2026-06-19), to = current (system open), both
 	// at the same valid instant: the system-time correction is visible.
 	res, err := f.GetAnchorDiff(ctx(), GetAnchorDiffParams{
-		TenantID: FixtureTenant, ID: "anchor_employee_0018",
+		TenantID: FixtureTenant, ID: "node_employee_0018",
 		FromValidAt: may1, FromSystemAt: &jun19,
 		ToValidAt: may1, ToSystemAt: nil,
 	})
@@ -410,7 +410,7 @@ func TestFixtureAnchorDiff(t *testing.T) {
 
 	// A valid coordinate before the anchor existed resolves to no version.
 	res2, err := f.GetAnchorDiff(ctx(), GetAnchorDiffParams{
-		TenantID: FixtureTenant, ID: "anchor_employee_0018",
+		TenantID: FixtureTenant, ID: "node_employee_0018",
 		FromValidAt: y2020, FromSystemAt: nil,
 		ToValidAt: may1, ToSystemAt: nil,
 	})
@@ -425,7 +425,7 @@ func TestFixtureAnchorDiff(t *testing.T) {
 	}
 
 	// Unknown id -> 404.
-	_, err = f.GetAnchorDiff(ctx(), GetAnchorDiffParams{TenantID: FixtureTenant, ID: "anchor_nope", FromValidAt: may1, ToValidAt: may1})
+	_, err = f.GetAnchorDiff(ctx(), GetAnchorDiffParams{TenantID: FixtureTenant, ID: "node_nope", FromValidAt: may1, ToValidAt: may1})
 	assertNotFound(t, err)
 }
 

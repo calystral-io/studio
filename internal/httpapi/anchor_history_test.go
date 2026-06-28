@@ -18,7 +18,7 @@ func mustTime(t *testing.T, s string) time.Time {
 	return parsed
 }
 
-// anchorHistoryBody mirrors the GET /anchors/{id}/history envelope for tests.
+// anchorHistoryBody mirrors the GET /nodes/{id}/history envelope for tests.
 type anchorHistoryBody struct {
 	ID       string                 `json:"id"`
 	Type     string                 `json:"type"`
@@ -36,13 +36,13 @@ type anchorHistoryBody struct {
 func TestAnchorHistory(t *testing.T) {
 	s := newFixtureServer()
 
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors/anchor_employee_0018/history", "mock-reader-token")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes/node_employee_0018/history", "mock-reader-token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var body anchorHistoryBody
 	decode(t, rec, &body)
-	if body.ID != "anchor_employee_0018" || body.Type != "Employee" {
+	if body.ID != "node_employee_0018" || body.Type != "Employee" {
 		t.Errorf("id/type = %q/%q", body.ID, body.Type)
 	}
 	if body.Source != "fixture" {
@@ -56,7 +56,7 @@ func TestAnchorHistory(t *testing.T) {
 	}
 
 	// Unknown id -> 404 not_found with resource="anchor:<id>".
-	rec = do(t, s, http.MethodGet, "/api/v1/anchors/anchor_nope/history", "mock-reader-token")
+	rec = do(t, s, http.MethodGet, "/api/v1/nodes/node_nope/history", "mock-reader-token")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown id status = %d", rec.Code)
 	}
@@ -69,7 +69,7 @@ func TestAnchorHistory(t *testing.T) {
 
 func TestAnchorHistoryForbiddenWithoutReader(t *testing.T) {
 	s := New(rolelessAuth{}, coreclient.NewFixture(), quietLogger(), Options{})
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors/anchor_employee_0018/history", "any")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes/node_employee_0018/history", "any")
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -80,7 +80,7 @@ func TestAnchorHistoryForbiddenWithoutReader(t *testing.T) {
 	}
 }
 
-// anchorDiffBody mirrors the GET /anchors/{id}/diff envelope for tests.
+// anchorDiffBody mirrors the GET /nodes/{id}/diff envelope for tests.
 type anchorDiffBody struct {
 	ID   string `json:"id"`
 	From struct {
@@ -102,7 +102,7 @@ func TestAnchorDiff(t *testing.T) {
 	// from = pre-correction (system 2026-06-19), to = current (system omitted ->
 	// current/open), both at the same explicit valid instant so the test is
 	// deterministic (independent of the wall clock).
-	target := "/api/v1/anchors/anchor_employee_0018/diff?as_of=2026-05-01&system_as_of=2026-06-19&to_as_of=2026-05-01"
+	target := "/api/v1/nodes/node_employee_0018/diff?as_of=2026-05-01&system_as_of=2026-06-19&to_as_of=2026-05-01"
 	rec := do(t, s, http.MethodGet, target, "mock-reader-token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
@@ -127,7 +127,7 @@ func TestAnchorDiff(t *testing.T) {
 
 	// A from-coordinate before the anchor existed yields a null from-version and
 	// an "added" diff (every present field of the to-version).
-	target = "/api/v1/anchors/anchor_employee_0018/diff?as_of=2020-01-01&to_as_of=2026-05-01"
+	target = "/api/v1/nodes/node_employee_0018/diff?as_of=2020-01-01&to_as_of=2026-05-01"
 	rec = do(t, s, http.MethodGet, target, "mock-reader-token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -157,10 +157,10 @@ func TestAnchorDiffValidation(t *testing.T) {
 		target   string
 		wantCode string
 	}{
-		{"bad as_of", "/api/v1/anchors/anchor_employee_0018/diff?as_of=nope", "/errors/validation/invalid_as_of"},
-		{"bad to_as_of", "/api/v1/anchors/anchor_employee_0018/diff?to_as_of=nope", "/errors/validation/invalid_as_of"},
-		{"bad system_as_of", "/api/v1/anchors/anchor_employee_0018/diff?system_as_of=nope", "/errors/validation/invalid_system_as_of"},
-		{"bad to_system_as_of", "/api/v1/anchors/anchor_employee_0018/diff?to_system_as_of=nope", "/errors/validation/invalid_system_as_of"},
+		{"bad as_of", "/api/v1/nodes/node_employee_0018/diff?as_of=nope", "/errors/validation/invalid_as_of"},
+		{"bad to_as_of", "/api/v1/nodes/node_employee_0018/diff?to_as_of=nope", "/errors/validation/invalid_as_of"},
+		{"bad system_as_of", "/api/v1/nodes/node_employee_0018/diff?system_as_of=nope", "/errors/validation/invalid_system_as_of"},
+		{"bad to_system_as_of", "/api/v1/nodes/node_employee_0018/diff?to_system_as_of=nope", "/errors/validation/invalid_system_as_of"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestAnchorDiffValidation(t *testing.T) {
 	}
 
 	// Unknown id -> 404.
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors/anchor_nope/diff", "mock-reader-token")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes/node_nope/diff", "mock-reader-token")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown id status = %d", rec.Code)
 	}
@@ -189,8 +189,8 @@ func TestAnchorHistoryDiffGRPCSourceReturns501(t *testing.T) {
 		target  string
 		surface string
 	}{
-		{"/api/v1/anchors/anchor_employee_0018/history", "anchor_history"},
-		{"/api/v1/anchors/anchor_employee_0018/diff", "anchor_diff"},
+		{"/api/v1/nodes/node_employee_0018/history", "node_history"},
+		{"/api/v1/nodes/node_employee_0018/diff", "node_diff"},
 	}
 	for _, c := range cases {
 		rec := do(t, s, http.MethodGet, c.target, "mock-reader-token")

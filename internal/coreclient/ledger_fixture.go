@@ -277,7 +277,7 @@ func seedLedgers() ([]LedgerSummary, map[string][]LedgerEntry) {
 
 		// A reference to a related node anchor on roughly every third entry.
 		if i%3 == 0 {
-			ref := fmt.Sprintf("anchor_employee_%04d", i%60)
+			ref := fmt.Sprintf("node_employee_%04d", i%60)
 			e.AnchorID = &ref
 		}
 

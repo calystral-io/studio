@@ -170,7 +170,7 @@ func TestAnchorsHappyPathAndPagination(t *testing.T) {
 	total := 0
 	pages := 0
 	for {
-		target := "/api/v1/anchors?page_size=50"
+		target := "/api/v1/nodes?page_size=50"
 		if cursor != "" {
 			target += "&cursor=" + cursor
 		}
@@ -209,7 +209,7 @@ func TestAnchorsHappyPathAndPagination(t *testing.T) {
 
 func TestAnchorsTypeFilter(t *testing.T) {
 	s := newFixtureServer()
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors?type=Customer&page_size=200", "mock-reader-token")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes?type=Customer&page_size=200", "mock-reader-token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -235,12 +235,12 @@ func TestAnchorsValidation(t *testing.T) {
 		target   string
 		wantCode string
 	}{
-		{"page_size too large", "/api/v1/anchors?page_size=999", "/errors/validation/page_size_out_of_range"},
-		{"page_size zero", "/api/v1/anchors?page_size=0", "/errors/validation/page_size_out_of_range"},
-		{"page_size non-integer", "/api/v1/anchors?page_size=abc", "/errors/validation/page_size_out_of_range"},
-		{"bad cursor", "/api/v1/anchors?cursor=%21%21%21", "/errors/validation/invalid_cursor"},
-		{"bad as_of", "/api/v1/anchors?as_of=not-a-time", "/errors/validation/invalid_as_of"},
-		{"bad system_as_of", "/api/v1/anchors?system_as_of=not-a-time", "/errors/validation/invalid_system_as_of"},
+		{"page_size too large", "/api/v1/nodes?page_size=999", "/errors/validation/page_size_out_of_range"},
+		{"page_size zero", "/api/v1/nodes?page_size=0", "/errors/validation/page_size_out_of_range"},
+		{"page_size non-integer", "/api/v1/nodes?page_size=abc", "/errors/validation/page_size_out_of_range"},
+		{"bad cursor", "/api/v1/nodes?cursor=%21%21%21", "/errors/validation/invalid_cursor"},
+		{"bad as_of", "/api/v1/nodes?as_of=not-a-time", "/errors/validation/invalid_as_of"},
+		{"bad system_as_of", "/api/v1/nodes?system_as_of=not-a-time", "/errors/validation/invalid_system_as_of"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -259,7 +259,7 @@ func TestAnchorsValidation(t *testing.T) {
 
 func TestAnchorsRequiresAuth(t *testing.T) {
 	s := newFixtureServer()
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors", "")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -274,7 +274,7 @@ func (rolelessAuth) Authenticate(*http.Request) (*auth.Principal, error) {
 
 func TestAnchorsForbiddenWithoutReader(t *testing.T) {
 	s := New(rolelessAuth{}, coreclient.NewFixture(), quietLogger(), Options{})
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors", "any")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes", "any")
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -300,7 +300,7 @@ func TestNotFoundEnvelope(t *testing.T) {
 
 func TestCORSAllowedOrigin(t *testing.T) {
 	s := newFixtureServer()
-	r := httptest.NewRequest(http.MethodOptions, "/api/v1/anchors", nil)
+	r := httptest.NewRequest(http.MethodOptions, "/api/v1/nodes", nil)
 	r.Header.Set("Origin", "http://localhost:5173")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, r)
@@ -354,7 +354,7 @@ func TestAnchorsGRPCSourceReturns501(t *testing.T) {
 	defer core.Close()
 
 	s := New(auth.MockAuthenticator{}, core, quietLogger(), Options{})
-	rec := do(t, s, http.MethodGet, "/api/v1/anchors", "mock-reader-token")
+	rec := do(t, s, http.MethodGet, "/api/v1/nodes", "mock-reader-token")
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -363,7 +363,7 @@ func TestAnchorsGRPCSourceReturns501(t *testing.T) {
 	if env.Error.Code != "/errors/upstream/unimplemented" {
 		t.Errorf("code = %q", env.Error.Code)
 	}
-	if env.Error.Params["surface"] != "anchors" {
+	if env.Error.Params["surface"] != "nodes" {
 		t.Errorf("surface = %v", env.Error.Params["surface"])
 	}
 }

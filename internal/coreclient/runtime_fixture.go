@@ -361,7 +361,7 @@ func seedMetricGroups() []MetricGroup {
 		{Subsystem: catStorage, Series: []MetricSeries{
 			counter("cvm_storage_page_reads_total", "Total storage page reads.", 184_203_551),
 			counter("cvm_storage_page_writes_total", "Total storage page writes.", 38_119_004),
-			counter("cvm_storage_anchor_reads_total", "Total anchor reads.", 91_882_117),
+			counter("cvm_storage_node_reads_total", "Total node reads.", 91_882_117),
 			counter("cvm_storage_scans_opened_total", "Total storage scans opened.", 2_004_551),
 			histogram("cvm_storage_wal_fsync_nanos", "WAL fsync latency (ns).",
 				nanoHistogram(41_882_551_000,

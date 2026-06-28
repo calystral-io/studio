@@ -23,8 +23,8 @@ func doBody(t *testing.T, s *Server, method, target, token, body string) *httpte
 func TestCreateAnchorHappyPathAndReadback(t *testing.T) {
 	s := newFixtureServer()
 
-	rec := doBody(t, s, http.MethodPost, "/api/v1/anchors", "mock-writer-token",
-		`{"id":"anchor_made_0001","type":"Service","label":"Billing","properties":{"tier":"gold"}}`)
+	rec := doBody(t, s, http.MethodPost, "/api/v1/nodes", "mock-writer-token",
+		`{"id":"node_made_0001","type":"Service","label":"Billing","properties":{"tier":"gold"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -33,11 +33,11 @@ func TestCreateAnchorHappyPathAndReadback(t *testing.T) {
 			ID       string  `json:"id"`
 			Label    string  `json:"label"`
 			SystemTo *string `json:"system_to"`
-		} `json:"anchor"`
+		} `json:"node"`
 		Source string `json:"source"`
 	}
 	decode(t, rec, &body)
-	if body.Anchor.ID != "anchor_made_0001" || body.Anchor.Label != "Billing" || body.Anchor.SystemTo != nil {
+	if body.Anchor.ID != "node_made_0001" || body.Anchor.Label != "Billing" || body.Anchor.SystemTo != nil {
 		t.Fatalf("created anchor = %+v", body.Anchor)
 	}
 	if body.Source != "fixture" {
@@ -45,7 +45,7 @@ func TestCreateAnchorHappyPathAndReadback(t *testing.T) {
 	}
 
 	// Honest statefulness: a follow-up read reflects the write.
-	rec = do(t, s, http.MethodGet, "/api/v1/anchors/anchor_made_0001/history", "mock-reader-token")
+	rec = do(t, s, http.MethodGet, "/api/v1/nodes/node_made_0001/history", "mock-reader-token")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("history status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -58,18 +58,18 @@ func TestCorrectAndCloseReadback(t *testing.T) {
 	s := newFixtureServer()
 
 	// Correct an existing anchor, then verify history shows the supersession.
-	rec := doBody(t, s, http.MethodPost, "/api/v1/anchors/anchor_employee_0001/corrections",
+	rec := doBody(t, s, http.MethodPost, "/api/v1/nodes/node_employee_0001/corrections",
 		"mock-writer-token", `{"label":"Renamed"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("correct status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	rec = do(t, s, http.MethodGet, "/api/v1/anchors/anchor_employee_0001/history", "mock-reader-token")
+	rec = do(t, s, http.MethodGet, "/api/v1/nodes/node_employee_0001/history", "mock-reader-token")
 	if !strings.Contains(rec.Body.String(), "Renamed") {
 		t.Error("correction not reflected in history")
 	}
 
 	// Close it; the close + valid_to surface in a diff against now vs the close.
-	rec = doBody(t, s, http.MethodPost, "/api/v1/anchors/anchor_employee_0001/close", "mock-writer-token", `{}`)
+	rec = doBody(t, s, http.MethodPost, "/api/v1/nodes/node_employee_0001/close", "mock-writer-token", `{}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("close status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -77,7 +77,7 @@ func TestCorrectAndCloseReadback(t *testing.T) {
 		Anchor struct {
 			Closed  bool    `json:"closed"`
 			ValidTo *string `json:"valid_to"`
-		} `json:"anchor"`
+		} `json:"node"`
 	}
 	decode(t, rec, &closeBody)
 	if !closeBody.Anchor.Closed || closeBody.Anchor.ValidTo == nil {
@@ -85,7 +85,7 @@ func TestCorrectAndCloseReadback(t *testing.T) {
 	}
 
 	// Closing again -> 400 invalid_request.
-	rec = doBody(t, s, http.MethodPost, "/api/v1/anchors/anchor_employee_0001/close", "mock-writer-token", `{}`)
+	rec = doBody(t, s, http.MethodPost, "/api/v1/nodes/node_employee_0001/close", "mock-writer-token", `{}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("re-close status = %d", rec.Code)
 	}
@@ -96,9 +96,9 @@ func TestMutationsRBAC(t *testing.T) {
 	cases := []struct {
 		name, method, target, body string
 	}{
-		{"create", http.MethodPost, "/api/v1/anchors", `{"id":"x","type":"T","label":"L"}`},
-		{"correct", http.MethodPost, "/api/v1/anchors/anchor_employee_0001/corrections", `{"label":"L"}`},
-		{"close", http.MethodPost, "/api/v1/anchors/anchor_employee_0001/close", `{}`},
+		{"create", http.MethodPost, "/api/v1/nodes", `{"id":"x","type":"T","label":"L"}`},
+		{"correct", http.MethodPost, "/api/v1/nodes/node_employee_0001/corrections", `{"label":"L"}`},
+		{"close", http.MethodPost, "/api/v1/nodes/node_employee_0001/close", `{}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestMutationsRBAC(t *testing.T) {
 func TestMutationsAdminAllowed(t *testing.T) {
 	// admin is a writer superset and may mutate.
 	s := newFixtureServer()
-	rec := doBody(t, s, http.MethodPost, "/api/v1/anchors", "mock-admin-token", `{"id":"by_admin","type":"T","label":"L"}`)
+	rec := doBody(t, s, http.MethodPost, "/api/v1/nodes", "mock-admin-token", `{"id":"by_admin","type":"T","label":"L"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("admin create status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -131,13 +131,13 @@ func TestMutationsValidation(t *testing.T) {
 		name, target, body, wantCode string
 		wantStatus                   int
 	}{
-		{"missing id", "/api/v1/anchors", `{"type":"T","label":"L"}`, "/errors/validation/invalid_request", 400},
-		{"missing type", "/api/v1/anchors", `{"id":"x","label":"L"}`, "/errors/validation/invalid_request", 400},
-		{"malformed json", "/api/v1/anchors", `{not json`, "/errors/validation/invalid_request", 400},
-		{"empty correction", "/api/v1/anchors/anchor_employee_0001/corrections", `{}`, "/errors/validation/invalid_request", 400},
-		{"bad valid_from", "/api/v1/anchors", `{"id":"x","type":"T","label":"L","valid_from":"nope"}`, "/errors/validation/invalid_request", 400},
-		{"unknown id correct", "/api/v1/anchors/anchor_nope/corrections", `{"label":"L"}`, "/errors/not_found", 404},
-		{"unknown id close", "/api/v1/anchors/anchor_nope/close", `{}`, "/errors/not_found", 404},
+		{"missing id", "/api/v1/nodes", `{"type":"T","label":"L"}`, "/errors/validation/invalid_request", 400},
+		{"missing type", "/api/v1/nodes", `{"id":"x","label":"L"}`, "/errors/validation/invalid_request", 400},
+		{"malformed json", "/api/v1/nodes", `{not json`, "/errors/validation/invalid_request", 400},
+		{"empty correction", "/api/v1/nodes/node_employee_0001/corrections", `{}`, "/errors/validation/invalid_request", 400},
+		{"bad valid_from", "/api/v1/nodes", `{"id":"x","type":"T","label":"L","valid_from":"nope"}`, "/errors/validation/invalid_request", 400},
+		{"unknown id correct", "/api/v1/nodes/node_nope/corrections", `{"label":"L"}`, "/errors/not_found", 404},
+		{"unknown id close", "/api/v1/nodes/node_nope/close", `{}`, "/errors/not_found", 404},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,8 +158,8 @@ func TestMutationsConflicts(t *testing.T) {
 	s := newFixtureServer()
 
 	// Duplicate create -> 409 already_exists.
-	_ = doBody(t, s, http.MethodPost, "/api/v1/anchors", "mock-writer-token", `{"id":"dup","type":"T","label":"L"}`)
-	rec := doBody(t, s, http.MethodPost, "/api/v1/anchors", "mock-writer-token", `{"id":"dup","type":"T","label":"L"}`)
+	_ = doBody(t, s, http.MethodPost, "/api/v1/nodes", "mock-writer-token", `{"id":"dup","type":"T","label":"L"}`)
+	rec := doBody(t, s, http.MethodPost, "/api/v1/nodes", "mock-writer-token", `{"id":"dup","type":"T","label":"L"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("dup status = %d", rec.Code)
 	}
@@ -170,7 +170,7 @@ func TestMutationsConflicts(t *testing.T) {
 	}
 
 	// Stale expected_lsn -> 409 precondition_failed.
-	rec = doBody(t, s, http.MethodPost, "/api/v1/anchors/anchor_employee_0001/corrections",
+	rec = doBody(t, s, http.MethodPost, "/api/v1/nodes/node_employee_0001/corrections",
 		"mock-writer-token", `{"label":"L","expected_lsn":1}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("precondition status = %d body=%s", rec.Code, rec.Body.String())
@@ -186,9 +186,9 @@ func TestMutationsGRPCSourceReturns501(t *testing.T) {
 	cases := []struct {
 		target, body, surface string
 	}{
-		{"/api/v1/anchors", `{"id":"x","type":"T","label":"L"}`, "anchor_create"},
-		{"/api/v1/anchors/anchor_employee_0001/corrections", `{"label":"L"}`, "anchor_correct"},
-		{"/api/v1/anchors/anchor_employee_0001/close", `{}`, "anchor_close"},
+		{"/api/v1/nodes", `{"id":"x","type":"T","label":"L"}`, "node_create"},
+		{"/api/v1/nodes/node_employee_0001/corrections", `{"label":"L"}`, "node_correct"},
+		{"/api/v1/nodes/node_employee_0001/close", `{}`, "node_close"},
 	}
 	for _, c := range cases {
 		rec := doBody(t, s, http.MethodPost, c.target, "mock-writer-token", c.body)

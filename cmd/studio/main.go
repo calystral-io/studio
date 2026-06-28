@@ -65,7 +65,7 @@ func serveCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.String("http-addr", "", "listen address ("+config.EnvHTTPAddr+")")
 	f.String("auth-mode", "", "auth mode: mock|nexus ("+config.EnvAuthMode+")")
-	f.String("core-source", "", "anchor source: fixture|grpc ("+config.EnvCoreSource+")")
+	f.String("core-source", "", "node source: fixture|grpc ("+config.EnvCoreSource+")")
 	f.String("core-grpc-addr", "", "Core gRPC endpoint ("+config.EnvCoreGRPCAddr+")")
 	f.String("core-dev-signing-key", "", "dev EdDSA signing key path/inline ("+config.EnvCoreDevSigningKey+")")
 	f.String("cors-origins", "", "comma-separated allowed origins ("+config.EnvCORSOrigins+")")
