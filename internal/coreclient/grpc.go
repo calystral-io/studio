@@ -33,6 +33,7 @@ const (
 	anchorsSurface          = "nodes"
 	anchorHistorySurface    = "node_history"
 	anchorDiffSurface       = "node_diff"
+	nodeNeighborhoodSurface = "node_neighborhood"
 	anchorCreateSurface     = "node_create"
 	anchorCorrectSurface    = "node_correct"
 	anchorCloseSurface      = "node_close"
@@ -174,6 +175,16 @@ func (c *GRPCClient) GetAnchorDiff(_ context.Context, p GetAnchorDiffParams) (*G
 	}
 	// TODO(PR-core-decode): resolve both coordinates server-side once reads land.
 	return nil, apierr.Unimplemented(anchorDiffSurface)
+}
+
+// GetNeighborhood would expand a seeded node neighborhood at a bitemporal
+// coordinate from Core once the edge/read path lands; today it reports the honest
+// 501 gap with surface=node_neighborhood.
+func (c *GRPCClient) GetNeighborhood(_ context.Context, p NeighborhoodParams) (*NeighborhoodResult, error) {
+	if p.Principal == nil {
+		return nil, apierr.Internal("grpc core client: missing principal")
+	}
+	return nil, apierr.Unimplemented(nodeNeighborhoodSurface)
 }
 
 // CreateAnchor would issue an anchor-create mutation to Core. Writing needs a

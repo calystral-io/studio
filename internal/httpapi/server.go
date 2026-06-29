@@ -131,6 +131,7 @@ func (s *Server) routes(opts Options) http.Handler {
 			r.Post("/nodes", s.handleCreateAnchor)
 			r.Get("/nodes/{id}/history", s.handleAnchorHistory)
 			r.Get("/nodes/{id}/diff", s.handleAnchorDiff)
+			r.Get("/nodes/{id}/neighborhood", s.handleNeighborhood)
 			r.Post("/nodes/{id}/corrections", s.handleCorrectAnchor)
 			r.Post("/nodes/{id}/close", s.handleCloseAnchor)
 			r.Get("/ledgers", s.handleLedgers)

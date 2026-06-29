@@ -103,6 +103,23 @@ func TestGRPCListAnchorsMapsUnimplemented(t *testing.T) {
 	}
 }
 
+func TestGRPCNeighborhoodMapsUnimplemented(t *testing.T) {
+	addr, _ := startStubCore(t)
+	c := newTestGRPCClient(t, addr)
+	_, err := c.GetNeighborhood(context.Background(), NeighborhoodParams{
+		TenantID:  "demo-tenant",
+		ID:        "node_employee_0001",
+		Principal: &auth.Principal{TenantID: "demo-tenant", Roles: []string{"reader"}},
+	})
+	ae, ok := err.(*apierr.APIError)
+	if !ok || ae.Code != apierr.CodeUnimplemented {
+		t.Fatalf("err = %v, want unimplemented", err)
+	}
+	if ae.Params["surface"] != nodeNeighborhoodSurface {
+		t.Fatalf("surface = %v, want %q", ae.Params["surface"], nodeNeighborhoodSurface)
+	}
+}
+
 func TestGRPCListAnchorsRejectsBadCursor(t *testing.T) {
 	addr, _ := startStubCore(t)
 	c := newTestGRPCClient(t, addr)
