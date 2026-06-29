@@ -249,6 +249,49 @@ func TestNeighborhoodBounds(t *testing.T) {
 	}
 }
 
+// The system-time bounds span the whole neighborhood's recording history and are
+// unfiltered by system_as_of, so the "as recorded at" axis has a stable scrub
+// range. The lower bound (earliest system_from) sits at or before the recorded
+// correction instant, so the slider can reach a coordinate before the correction;
+// the span stays open (system_to nil => "as recorded today") because current
+// versions coexist with the one supersession.
+func TestNeighborhoodSystemBounds(t *testing.T) {
+	f := NewFixture()
+	res, err := f.GetNeighborhood(context.Background(), NeighborhoodParams{TenantID: FixtureTenant, ID: "node_employee_0018"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.SystemFrom.IsZero() {
+		t.Fatal("bounds system_from is zero")
+	}
+	// The lower bound is at or before the seed's own system_from.
+	if res.Root != nil && res.SystemFrom.After(res.Root.SystemFrom) {
+		t.Fatalf("bounds.system_from %v is after root.system_from %v", res.SystemFrom, res.Root.SystemFrom)
+	}
+	// The range must reach back before the correction so a user can roll system-time
+	// to a coordinate where the superseded fact is still the recorded one.
+	if !res.SystemFrom.Before(fixtureCorrectionAt) {
+		t.Fatalf("bounds.system_from %v is not before the correction instant %v", res.SystemFrom, fixtureCorrectionAt)
+	}
+	// Current versions coexist, so the span is open (=> scrub up to now).
+	if res.SystemTo != nil {
+		t.Fatalf("expected an open system span (current data coexists), got %v", res.SystemTo)
+	}
+
+	// Unfiltered: scrubbing system_as_of must not move the bounds.
+	before := fixtureCorrectionAt.Add(-24 * time.Hour)
+	res2, err := f.GetNeighborhood(context.Background(), NeighborhoodParams{TenantID: FixtureTenant, ID: "node_employee_0018", SystemAsOf: &before})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res2.SystemFrom.Equal(res.SystemFrom) {
+		t.Fatalf("bounds.system_from shifted with system_as_of: %v vs %v", res2.SystemFrom, res.SystemFrom)
+	}
+	if res2.SystemTo != nil {
+		t.Fatalf("bounds.system_to shifted to closed with system_as_of: %v", res2.SystemTo)
+	}
+}
+
 // Unit: edgePresent honors the bounded valid window and the current-only system
 // default.
 func TestEdgePresentBounded(t *testing.T) {

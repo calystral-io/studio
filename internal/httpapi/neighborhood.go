@@ -11,11 +11,15 @@ import (
 	"github.com/calystral-io/studio/internal/coreclient"
 )
 
-// validBounds is the valid-time span over which the seed's neighborhood evolves;
-// the UI timeline scrubs as_of across it. valid_to is null when still open.
-type validBounds struct {
-	ValidFrom time.Time  `json:"valid_from"`
-	ValidTo   *time.Time `json:"valid_to"`
+// timeBounds is the bitemporal span over which the seed's neighborhood evolves;
+// the UI timeline scrubs as_of across the valid-time span and the "as recorded at"
+// axis scrubs system_as_of across the system-time span. A null upper bound means
+// the span is still open (valid_to) / current (system_to).
+type timeBounds struct {
+	ValidFrom  time.Time  `json:"valid_from"`
+	ValidTo    *time.Time `json:"valid_to"`
+	SystemFrom time.Time  `json:"system_from"`
+	SystemTo   *time.Time `json:"system_to"`
 }
 
 // neighborhoodResponse is the GET /nodes/{id}/neighborhood envelope: the seed
@@ -28,7 +32,7 @@ type neighborhoodResponse struct {
 	Edges         []coreclient.EdgeDTO   `json:"edges"`
 	NeighborTotal int                    `json:"neighbor_total"`
 	Sampled       bool                   `json:"sampled"`
-	Bounds        validBounds            `json:"bounds"`
+	Bounds        timeBounds             `json:"bounds"`
 	Source        string                 `json:"source"`
 }
 
@@ -89,7 +93,12 @@ func (s *Server) handleNeighborhood(w http.ResponseWriter, r *http.Request) {
 		Edges:         res.Edges,
 		NeighborTotal: res.NeighborTotal,
 		Sampled:       res.Sampled,
-		Bounds:        validBounds{ValidFrom: res.ValidFrom, ValidTo: res.ValidTo},
-		Source:        res.Source,
+		Bounds: timeBounds{
+			ValidFrom:  res.ValidFrom,
+			ValidTo:    res.ValidTo,
+			SystemFrom: res.SystemFrom,
+			SystemTo:   res.SystemTo,
+		},
+		Source: res.Source,
 	})
 }
