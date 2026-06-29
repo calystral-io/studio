@@ -401,6 +401,7 @@ Response 200:
   "edges": [ /* Edge ... both endpoints inside {root} ∪ neighbors */ ],
   "neighbor_total": 11,
   "sampled": true,
+  "bounds": { "valid_from": "2026-01-04T00:00:00Z", "valid_to": null },
   "source": "fixture"
 }
 ```
@@ -412,6 +413,10 @@ Response 200:
   before it was created or after it was closed) — an empty graph, NOT an error.
 - `neighbor_total` is the distinct neighbor count before the cap; `sampled` is
   true when neighbors were dropped to fit `limit` (evenly sampled, deterministic).
+- `bounds` is the valid-time span over which the seed's whole neighborhood evolves
+  (earliest `valid_from`, latest `valid_to`), computed over every ever-connected
+  node + edge and UNFILTERED by `as_of` — so the UI timeline has a stable scrub
+  range. `valid_to` is `null` when anything is still open (=> scrub up to now).
 - `404` `/errors/not_found` (`resource="node:<id>"`) only when the id has no
   versions at all in the tenant. Reader role required. gRPC source returns `501`
   with `params.surface="node_neighborhood"`.

@@ -60,7 +60,55 @@ type NeighborhoodResult struct {
 	Edges         []EdgeDTO
 	NeighborTotal int  // distinct neighbors before the cap/sample
 	Sampled       bool // true when NeighborTotal > len(Neighbors)
-	Source        string
+	// ValidFrom / ValidTo are the valid-time BOUNDS of the seed's whole
+	// neighborhood across all time (unfiltered by as_of), so the UI timeline knows
+	// its scrub range. ValidTo is nil when anything is still open (=> "up to now").
+	ValidFrom time.Time
+	ValidTo   *time.Time
+	Source    string
+}
+
+// neighborhoodBounds returns the valid-time span over which the seed's
+// neighborhood evolves: the earliest valid_from and the latest valid_to among the
+// seed, every node ever connected to it by an edge, and those edges. ValidTo is
+// nil (open) when any of them is still open. Caller holds f.mu.RLock.
+func (f *Fixture) neighborhoodBounds(tenant, seedID string) (time.Time, *time.Time) {
+	ids := map[string]struct{}{seedID: {}}
+	var from time.Time
+	var to *time.Time
+	open := false
+	first := true
+	consider := func(vf time.Time, vt *time.Time) {
+		if first || vf.Before(from) {
+			from = vf
+			first = false
+		}
+		if vt == nil {
+			open = true
+		} else if to == nil || vt.After(*to) {
+			to = vt
+		}
+	}
+	for _, e := range f.edges {
+		if e.SourceID != seedID && e.TargetID != seedID {
+			continue
+		}
+		ids[e.SourceID] = struct{}{}
+		ids[e.TargetID] = struct{}{}
+		consider(e.ValidFrom, e.ValidTo)
+	}
+	for _, a := range f.anchors {
+		if a.TenantID != tenant {
+			continue
+		}
+		if _, ok := ids[a.ID]; ok {
+			consider(a.ValidFrom, a.ValidTo)
+		}
+	}
+	if open {
+		return from, nil
+	}
+	return from, to
 }
 
 // NeighborhoodLimitDefault / Max bound the server-side neighbor cap. The whole
@@ -141,8 +189,16 @@ func (f *Fixture) GetNeighborhood(_ context.Context, p NeighborhoodParams) (*Nei
 		return nil, apierr.NotFound("node:" + p.ID)
 	}
 
+	boundsFrom, boundsTo := f.neighborhoodBounds(p.TenantID, p.ID)
 	root := f.projectNode(p.TenantID, p.ID, p.AsOf, p.SystemAsOf)
-	res := &NeighborhoodResult{Root: root, Neighbors: []AnchorDTO{}, Edges: []EdgeDTO{}, Source: SourceFixture}
+	res := &NeighborhoodResult{
+		Root:      root,
+		Neighbors: []AnchorDTO{},
+		Edges:     []EdgeDTO{},
+		ValidFrom: boundsFrom,
+		ValidTo:   boundsTo,
+		Source:    SourceFixture,
+	}
 	if root == nil {
 		return res, nil // exists, but absent at this coordinate -> empty graph
 	}
@@ -273,6 +329,17 @@ func seedEdges(anchors []AnchorDTO) []EdgeDTO {
 		sf := ss.sf
 		if ts.sf.After(sf) {
 			sf = ts.sf
+		}
+		// Stagger when each relationship FORMS across the first ~6 months (always
+		// >= when both endpoints exist), and end a fraction of them, so a hub's
+		// neighborhood visibly evolves as the valid-time timeline is scrubbed
+		// (edges + the leaves they reach appear and vanish over time). The default
+		// view (no as_of) is unaffected — it applies no valid-time filter.
+		seq := lsn - edgeLSNBase
+		vf = vf.AddDate(0, 0, int(seq%13)*14)
+		if validTo == nil && seq%6 == 0 {
+			ended := vf.AddDate(0, 3, 0)
+			validTo = &ended
 		}
 		edges = append(edges, EdgeDTO{
 			ID:         edgeID(lsn),

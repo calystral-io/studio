@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -10,15 +11,24 @@ import (
 	"github.com/calystral-io/studio/internal/coreclient"
 )
 
+// validBounds is the valid-time span over which the seed's neighborhood evolves;
+// the UI timeline scrubs as_of across it. valid_to is null when still open.
+type validBounds struct {
+	ValidFrom time.Time  `json:"valid_from"`
+	ValidTo   *time.Time `json:"valid_to"`
+}
+
 // neighborhoodResponse is the GET /nodes/{id}/neighborhood envelope: the seed
-// node (null when absent at the coordinate), its capped + sampled neighbors, and
-// the edges among that node set, all projected to (as_of, system_as_of).
+// node (null when absent at the coordinate), its capped + sampled neighbors, the
+// edges among that node set (all projected to (as_of, system_as_of)), and the
+// valid-time bounds for the timeline.
 type neighborhoodResponse struct {
 	Root          *coreclient.AnchorDTO  `json:"root"`
 	Neighbors     []coreclient.AnchorDTO `json:"neighbors"`
 	Edges         []coreclient.EdgeDTO   `json:"edges"`
 	NeighborTotal int                    `json:"neighbor_total"`
 	Sampled       bool                   `json:"sampled"`
+	Bounds        validBounds            `json:"bounds"`
 	Source        string                 `json:"source"`
 }
 
@@ -79,6 +89,7 @@ func (s *Server) handleNeighborhood(w http.ResponseWriter, r *http.Request) {
 		Edges:         res.Edges,
 		NeighborTotal: res.NeighborTotal,
 		Sampled:       res.Sampled,
+		Bounds:        validBounds{ValidFrom: res.ValidFrom, ValidTo: res.ValidTo},
 		Source:        res.Source,
 	})
 }
