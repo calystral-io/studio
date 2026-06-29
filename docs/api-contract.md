@@ -401,7 +401,10 @@ Response 200:
   "edges": [ /* Edge ... both endpoints inside {root} ∪ neighbors */ ],
   "neighbor_total": 11,
   "sampled": true,
-  "bounds": { "valid_from": "2026-01-04T00:00:00Z", "valid_to": null },
+  "bounds": {
+    "valid_from": "2026-01-04T00:00:00Z", "valid_to": null,
+    "system_from": "2026-01-04T09:00:00Z", "system_to": null
+  },
   "source": "fixture"
 }
 ```
@@ -413,10 +416,15 @@ Response 200:
   before it was created or after it was closed) — an empty graph, NOT an error.
 - `neighbor_total` is the distinct neighbor count before the cap; `sampled` is
   true when neighbors were dropped to fit `limit` (evenly sampled, deterministic).
-- `bounds` is the valid-time span over which the seed's whole neighborhood evolves
-  (earliest `valid_from`, latest `valid_to`), computed over every ever-connected
-  node + edge and UNFILTERED by `as_of` — so the UI timeline has a stable scrub
-  range. `valid_to` is `null` when anything is still open (=> scrub up to now).
+- `bounds` is the bitemporal span over which the seed's whole neighborhood evolves,
+  computed over every ever-connected node + edge and UNFILTERED by `as_of` /
+  `system_as_of` — so the UI timeline (valid-time) and the "as recorded at" axis
+  (system-time) each have a stable scrub range. `valid_from`/`valid_to` is the
+  business-time span (`valid_to=null` => still open, scrub up to now);
+  `system_from`/`system_to` is the decision-time span (`system_to=null` => still
+  current, "as recorded today"). Rolling `system_as_of` back before a recorded
+  correction reveals the neighborhood as it was originally recorded (a fact
+  recorded later is absent at the earlier system-time).
 - `404` `/errors/not_found` (`resource="node:<id>"`) only when the id has no
   versions at all in the tenant. Reader role required. gRPC source returns `501`
   with `params.surface="node_neighborhood"`.

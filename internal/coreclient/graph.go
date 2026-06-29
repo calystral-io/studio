@@ -65,50 +65,77 @@ type NeighborhoodResult struct {
 	// its scrub range. ValidTo is nil when anything is still open (=> "up to now").
 	ValidFrom time.Time
 	ValidTo   *time.Time
-	Source    string
+	// SystemFrom / SystemTo are the system-time (decision-time) BOUNDS of the same
+	// neighborhood, unfiltered by system_as_of, so the UI's "as recorded at" axis
+	// has a stable scrub range. SystemTo is nil when anything is still current
+	// (=> "up to now / as recorded today").
+	SystemFrom time.Time
+	SystemTo   *time.Time
+	Source     string
 }
 
-// neighborhoodBounds returns the valid-time span over which the seed's
-// neighborhood evolves: the earliest valid_from and the latest valid_to among the
-// seed, every node ever connected to it by an edge, and those edges. ValidTo is
-// nil (open) when any of them is still open. Caller holds f.mu.RLock.
-func (f *Fixture) neighborhoodBounds(tenant, seedID string) (time.Time, *time.Time) {
-	ids := map[string]struct{}{seedID: {}}
-	var from time.Time
-	var to *time.Time
-	open := false
-	first := true
-	consider := func(vf time.Time, vt *time.Time) {
-		if first || vf.Before(from) {
-			from = vf
-			first = false
-		}
-		if vt == nil {
-			open = true
-		} else if to == nil || vt.After(*to) {
-			to = vt
-		}
+// timeSpan accumulates the earliest "from" and latest "to" of a set of half-open
+// intervals; a nil "to" makes the whole span open (=> nil upper bound). Used for
+// both the valid-time and system-time neighborhood bounds.
+type timeSpan struct {
+	from  time.Time
+	to    *time.Time
+	open  bool
+	empty bool
+}
+
+func newTimeSpan() timeSpan { return timeSpan{empty: true} }
+
+func (s *timeSpan) add(from time.Time, to *time.Time) {
+	if s.empty || from.Before(s.from) {
+		s.from = from
+		s.empty = false
 	}
+	if to == nil {
+		s.open = true
+	} else if s.to == nil || to.After(*s.to) {
+		s.to = to
+	}
+}
+
+func (s timeSpan) bounds() (time.Time, *time.Time) {
+	if s.open {
+		return s.from, nil
+	}
+	return s.from, s.to
+}
+
+// neighborhoodBounds returns the valid-time AND system-time spans over which the
+// seed's neighborhood evolves: across the seed, every node ever connected to it by
+// an edge, and those edges. Each span's upper bound is nil (open) when any member
+// is still open/current. Both are unfiltered by as_of / system_as_of so the UI
+// timeline + "as recorded at" axis have stable scrub ranges. Caller holds
+// f.mu.RLock.
+func (f *Fixture) neighborhoodBounds(tenant, seedID string) (validFrom time.Time, validTo *time.Time, sysFrom time.Time, sysTo *time.Time) {
+	ids := map[string]struct{}{seedID: {}}
+	valid := newTimeSpan()
+	system := newTimeSpan()
 	for _, e := range f.edges {
 		if e.SourceID != seedID && e.TargetID != seedID {
 			continue
 		}
 		ids[e.SourceID] = struct{}{}
 		ids[e.TargetID] = struct{}{}
-		consider(e.ValidFrom, e.ValidTo)
+		valid.add(e.ValidFrom, e.ValidTo)
+		system.add(e.SystemFrom, e.SystemTo)
 	}
 	for _, a := range f.anchors {
 		if a.TenantID != tenant {
 			continue
 		}
 		if _, ok := ids[a.ID]; ok {
-			consider(a.ValidFrom, a.ValidTo)
+			valid.add(a.ValidFrom, a.ValidTo)
+			system.add(a.SystemFrom, a.SystemTo)
 		}
 	}
-	if open {
-		return from, nil
-	}
-	return from, to
+	vf, vt := valid.bounds()
+	sf, st := system.bounds()
+	return vf, vt, sf, st
 }
 
 // NeighborhoodLimitDefault / Max bound the server-side neighbor cap. The whole
@@ -189,15 +216,17 @@ func (f *Fixture) GetNeighborhood(_ context.Context, p NeighborhoodParams) (*Nei
 		return nil, apierr.NotFound("node:" + p.ID)
 	}
 
-	boundsFrom, boundsTo := f.neighborhoodBounds(p.TenantID, p.ID)
+	validFrom, validTo, sysFrom, sysTo := f.neighborhoodBounds(p.TenantID, p.ID)
 	root := f.projectNode(p.TenantID, p.ID, p.AsOf, p.SystemAsOf)
 	res := &NeighborhoodResult{
-		Root:      root,
-		Neighbors: []AnchorDTO{},
-		Edges:     []EdgeDTO{},
-		ValidFrom: boundsFrom,
-		ValidTo:   boundsTo,
-		Source:    SourceFixture,
+		Root:       root,
+		Neighbors:  []AnchorDTO{},
+		Edges:      []EdgeDTO{},
+		ValidFrom:  validFrom,
+		ValidTo:    validTo,
+		SystemFrom: sysFrom,
+		SystemTo:   sysTo,
+		Source:     SourceFixture,
 	}
 	if root == nil {
 		return res, nil // exists, but absent at this coordinate -> empty graph

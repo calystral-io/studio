@@ -14,8 +14,10 @@ type neighborhoodBody struct {
 	Total     int                    `json:"neighbor_total"`
 	Sampled   bool                   `json:"sampled"`
 	Bounds    struct {
-		ValidFrom string  `json:"valid_from"`
-		ValidTo   *string `json:"valid_to"`
+		ValidFrom  string  `json:"valid_from"`
+		ValidTo    *string `json:"valid_to"`
+		SystemFrom string  `json:"system_from"`
+		SystemTo   *string `json:"system_to"`
 	} `json:"bounds"`
 	Source string `json:"source"`
 }
@@ -42,9 +44,13 @@ func TestNeighborhoodOK(t *testing.T) {
 	if e.SourceID == "" || e.TargetID == "" || e.Type == "" {
 		t.Fatalf("edge missing source/target/type: %+v", e)
 	}
-	// Valid-time bounds for the timeline are present.
+	// Valid-time AND system-time bounds for the timeline + "as recorded at" axis
+	// are present (the system axis needs its own scrub range).
 	if body.Bounds.ValidFrom == "" {
 		t.Fatalf("bounds.valid_from missing: %+v", body.Bounds)
+	}
+	if body.Bounds.SystemFrom == "" {
+		t.Fatalf("bounds.system_from missing: %+v", body.Bounds)
 	}
 }
 
