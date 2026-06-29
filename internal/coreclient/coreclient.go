@@ -674,6 +674,7 @@ type CoreClient interface {
 	ListAnchors(ctx context.Context, p ListAnchorsParams) (*ListAnchorsResult, error)
 	GetAnchorHistory(ctx context.Context, p GetAnchorHistoryParams) (*GetAnchorHistoryResult, error)
 	GetAnchorDiff(ctx context.Context, p GetAnchorDiffParams) (*GetAnchorDiffResult, error)
+	GetNeighborhood(ctx context.Context, p NeighborhoodParams) (*NeighborhoodResult, error)
 	CreateAnchor(ctx context.Context, p CreateAnchorParams) (*AnchorMutationResult, error)
 	CorrectAnchor(ctx context.Context, p CorrectAnchorParams) (*AnchorMutationResult, error)
 	CloseAnchor(ctx context.Context, p CloseAnchorParams) (*AnchorMutationResult, error)

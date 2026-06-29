@@ -357,6 +357,65 @@ for correct/close of an unknown id; `403` for a non-writer. gRPC source returns
 (Core's mutate path + a cybr encoder are not implemented — the write-side analogue
 of the read decoder gap).
 
+## 4.4 GET /api/v1/nodes/{id}/neighborhood (graph view — seeded expansion)
+
+The graph view's data source: a ONE-HOP neighborhood around a seed node,
+projected to a bitemporal coordinate. The whole graph is never returned —
+expansion is seeded (start at a node) and capped + sampled server-side; the UI
+re-seeds from a clicked neighbor to walk further.
+
+Query parameters:
+
+| param | type | default | notes |
+|---|---|---|---|
+| `as_of` | RFC3339 or `YYYY-MM-DD` | (none) | valid-time projection; malformed -> 400 `/errors/validation/invalid_as_of` |
+| `system_as_of` | RFC3339 or `YYYY-MM-DD` | (none) | system-time projection; omitted => current-only; malformed -> 400 `/errors/validation/invalid_system_as_of` |
+| `limit` | int | 50 | neighbor cap (1..200; clamped). Non-integer or negative -> 400 `/errors/validation/invalid_request` (`field=limit`) |
+
+An **Edge** is a typed, directed, bitemporal relationship — the SAME bitemporal
+shape as a node version:
+
+```json
+{
+  "id": "edge_900123",
+  "type": "MEMBER_OF",
+  "source_id": "node_employee_0001",
+  "target_id": "node_department_0001",
+  "label": "member of",
+  "properties": {},
+  "valid_from": "2026-01-04T00:00:00Z",
+  "valid_to": null,
+  "system_from": "2026-01-04T09:00:00Z",
+  "system_to": null,
+  "lsn": 900123,
+  "txn_id": 900123
+}
+```
+
+Response 200:
+
+```json
+{
+  "root": { /* NodeDTO (section 3) or null */ },
+  "neighbors": [ /* NodeDTO ... capped + sampled */ ],
+  "edges": [ /* Edge ... both endpoints inside {root} ∪ neighbors */ ],
+  "neighbor_total": 11,
+  "sampled": true,
+  "source": "fixture"
+}
+```
+
+- An edge is included only when it is present AND both endpoints are present at
+  the coordinate; the returned `edges` is every present edge with both endpoints
+  in the (root + kept neighbors) set, so neighbor-to-neighbor edges render too.
+- `root` is `null` when the id exists but is not present at the coordinate (e.g.
+  before it was created or after it was closed) — an empty graph, NOT an error.
+- `neighbor_total` is the distinct neighbor count before the cap; `sampled` is
+  true when neighbors were dropped to fit `limit` (evenly sampled, deterministic).
+- `404` `/errors/not_found` (`resource="node:<id>"`) only when the id has no
+  versions at all in the tenant. Reader role required. gRPC source returns `501`
+  with `params.surface="node_neighborhood"`.
+
 ## 5. Infra + identity endpoints
 
 ### 5.1 GET /healthz  (unauthenticated, liveness)

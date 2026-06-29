@@ -29,6 +29,11 @@ type Fixture struct {
 	// create a zero-width interval and break the non-overlap invariant).
 	lastMutationAt time.Time
 	anchors        []AnchorDTO
+	// edges is the seeded typed-relationship set for the graph view, in stable id
+	// order. Read-only after construction (node mutations never touch it), so it
+	// needs no lock of its own; neighborhood reads take the anchor RLock anyway to
+	// read node state consistently.
+	edges []EdgeDTO
 	// ledgers is the catalog in stable name order; entries maps each ledger
 	// name to its entries in ascending lsn (append) order.
 	ledgers []LedgerSummary
@@ -78,6 +83,7 @@ func NewFixture() *Fixture {
 		// runtime mutation can never invert a seed row's system interval.
 		lastMutationAt: maxSystemFrom,
 		anchors:        anchors,
+		edges:          seedEdges(anchors),
 		ledgers:        ledgers,
 		entries:        entries,
 		nodes:          nodes,
