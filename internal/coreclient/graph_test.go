@@ -213,6 +213,42 @@ func TestNeighborhoodSystemSupersession(t *testing.T) {
 	}
 }
 
+// The valid-time bounds span the whole neighborhood (every ever-connected node)
+// and are unfiltered by as_of, so the timeline slider has a stable range.
+func TestNeighborhoodBounds(t *testing.T) {
+	f := NewFixture()
+	res, err := f.GetNeighborhood(context.Background(), NeighborhoodParams{TenantID: FixtureTenant, ID: "node_department_0000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ValidFrom.IsZero() {
+		t.Fatal("bounds valid_from is zero")
+	}
+	// A department + its open employees/projects => the upper bound is open.
+	if res.ValidTo != nil {
+		t.Fatalf("expected open valid_to, got %v", res.ValidTo)
+	}
+	// The lower bound is the earliest of the whole neighborhood, so it is at or
+	// before the seed's own valid_from and before every present neighbor's.
+	if res.Root != nil && res.ValidFrom.After(res.Root.ValidFrom) {
+		t.Fatalf("bounds.from %v is after root.from %v", res.ValidFrom, res.Root.ValidFrom)
+	}
+	for _, n := range res.Neighbors {
+		if res.ValidFrom.After(n.ValidFrom) {
+			t.Fatalf("bounds.from %v after neighbor %s from %v", res.ValidFrom, n.ID, n.ValidFrom)
+		}
+	}
+	// Unfiltered: scrubbing as_of must not move the bounds.
+	future := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+	res2, err := f.GetNeighborhood(context.Background(), NeighborhoodParams{TenantID: FixtureTenant, ID: "node_department_0000", AsOf: &future})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res2.ValidFrom.Equal(res.ValidFrom) {
+		t.Fatalf("bounds.from shifted with as_of: %v vs %v", res2.ValidFrom, res.ValidFrom)
+	}
+}
+
 // Unit: edgePresent honors the bounded valid window and the current-only system
 // default.
 func TestEdgePresentBounded(t *testing.T) {

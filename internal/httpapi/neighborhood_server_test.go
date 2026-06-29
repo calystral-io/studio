@@ -13,7 +13,11 @@ type neighborhoodBody struct {
 	Edges     []coreclient.EdgeDTO   `json:"edges"`
 	Total     int                    `json:"neighbor_total"`
 	Sampled   bool                   `json:"sampled"`
-	Source    string                 `json:"source"`
+	Bounds    struct {
+		ValidFrom string  `json:"valid_from"`
+		ValidTo   *string `json:"valid_to"`
+	} `json:"bounds"`
+	Source string `json:"source"`
 }
 
 func TestNeighborhoodOK(t *testing.T) {
@@ -37,6 +41,10 @@ func TestNeighborhoodOK(t *testing.T) {
 	e := body.Edges[0]
 	if e.SourceID == "" || e.TargetID == "" || e.Type == "" {
 		t.Fatalf("edge missing source/target/type: %+v", e)
+	}
+	// Valid-time bounds for the timeline are present.
+	if body.Bounds.ValidFrom == "" {
+		t.Fatalf("bounds.valid_from missing: %+v", body.Bounds)
 	}
 }
 
