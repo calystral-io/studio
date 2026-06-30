@@ -685,6 +685,44 @@ id+raft_group_id+key_range edges).
 501 behavior under `STUDIO_CORE_SOURCE=grpc`: `params.surface` is
 `cluster_summary` / `cluster_nodes` / `cluster_shards` respectively.
 
+### 12.1 GET /api/v1/cluster/topology (aggregated cluster view)
+
+A single payload aggregating the cluster across all configured Core replicas, for
+the cluster overview. Requires `reader`. The BFF fans the read out across every
+replica in `STUDIO_CORE_GRPC_ADDRS` (comma-separated; falls back to the single
+`STUDIO_CORE_GRPC_ADDR`), unions the reported nodes/shards (deduped by id, id
+asc), and derives the rollup from those rows.
+
+Response 200:
+
+```json
+{
+  "cluster": false,
+  "summary": null,
+  "nodes": [],
+  "shards": [],
+  "source": "core"
+}
+```
+
+- `cluster` (bool): true when Core reports a multi-node cluster (more than one
+  node observed); false for a single-node Core or when no topology is available.
+- `summary` (`ClusterSummary` | null): the derived rollup, or `null` when no
+  replica has cluster topology to report. `region_count` and `replication_factor`
+  are derived from the rows themselves (not seed constants).
+- `nodes` / `shards`: the unioned sets (always arrays, `[]` when empty - never
+  `null`).
+- `source`: `"fixture"` or `"core"`.
+
+NEVER-FABRICATE: a single-node Core - and, today, a cluster whose Core build does
+not yet serve cluster topology over gRPC (it returns UNIMPLEMENTED, pending
+Core's RaftTransport + read path) - yields the honest no-cluster-info shape above
+(`cluster:false`, `summary:null`, empty sets), NOT a synthesized rollup. Unlike
+the paginated cluster endpoints this surface does NOT 501 on that gap: an empty
+topology is the correct answer until Core can report one. An unreachable replica
+is skipped (the read degrades gracefully); only when EVERY replica is unreachable
+does it return 502 `params.surface="cluster_topology"`.
+
 ## 13. Runtime-state DTOs + GET /api/v1/runtime (PR4)
 
 The runtime view is an OPERATOR observability surface over the cvm execution

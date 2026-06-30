@@ -1,6 +1,7 @@
 package coreclient
 
 import (
+	"context"
 	"testing"
 
 	"github.com/calystral-io/studio/internal/apierr"
@@ -578,6 +579,34 @@ func TestFixtureClusterCombinedFilters(t *testing.T) {
 	for _, sh := range sres.Items {
 		if sh.Region != "eu-central" || sh.Status != ShardDegraded {
 			t.Errorf("shard %s = (%s,%s), want (eu-central,degraded)", sh.ID, sh.Region, sh.Status)
+		}
+	}
+}
+
+func TestFixtureClusterTopology(t *testing.T) {
+	f := NewFixture()
+	res, err := f.ClusterTopology(context.Background(), ClusterTopologyParams{})
+	if err != nil {
+		t.Fatalf("topology: %v", err)
+	}
+	if res.Source != SourceFixture {
+		t.Errorf("source = %q, want fixture", res.Source)
+	}
+	if !res.Cluster {
+		t.Error("fixture is a multi-node cluster; Cluster must be true")
+	}
+	if res.Summary == nil || res.Summary.NodeCount != f.NodeCount() || res.Summary.ShardCount != f.ShardCount() {
+		t.Fatalf("summary = %+v, want node/shard counts %d/%d", res.Summary, f.NodeCount(), f.ShardCount())
+	}
+	if len(res.Nodes) != f.NodeCount() || len(res.Shards) != f.ShardCount() {
+		t.Errorf("rows = %d nodes / %d shards, want %d / %d", len(res.Nodes), len(res.Shards), f.NodeCount(), f.ShardCount())
+	}
+	// Returned slices are copies: mutating them must not corrupt the fixture seed.
+	if len(res.Nodes) > 0 {
+		res.Nodes[0].ID = "tampered"
+		again, _ := f.ListNodes(context.Background(), ListNodesParams{PageSize: 1})
+		if len(again.Items) > 0 && again.Items[0].ID == "tampered" {
+			t.Error("ClusterTopology must return a copy, not the live seed slice")
 		}
 	}
 }

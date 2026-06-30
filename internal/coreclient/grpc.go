@@ -42,6 +42,7 @@ const (
 	clusterSummarySurface   = "cluster_summary"
 	clusterNodesSurface     = "cluster_nodes"
 	clusterShardsSurface    = "cluster_shards"
+	clusterTopologySurface  = "cluster_topology"
 	runtimeSummarySurface   = "runtime_summary"
 	opcodesSurface          = "runtime_opcodes"
 	planCacheSurface        = "runtime_plan_cache"

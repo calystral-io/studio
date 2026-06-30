@@ -127,3 +127,50 @@ func TestBuildClusterCyQL(t *testing.T) {
 		}
 	}
 }
+
+func TestGRPCClusterTopologyNoClusterInfo(t *testing.T) {
+	// Core returns UNIMPLEMENTED for the cluster reads today. ClusterTopology must
+	// fold that into the honest no-cluster-info shape (200-able), NOT a 501 error:
+	// an empty topology is the correct answer until Core serves one.
+	addr, principalCh := startStubCore(t)
+	c := newTestGRPCClient(t, addr)
+
+	res, err := c.ClusterTopology(context.Background(), ClusterTopologyParams{
+		TenantID:  "demo-tenant",
+		Principal: &auth.Principal{TenantID: "demo-tenant", Roles: []string{"reader"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error (UNIMPLEMENTED must fold, not surface): %v", err)
+	}
+	if res.Summary != nil {
+		t.Errorf("summary = %+v, want nil", res.Summary)
+	}
+	if res.Cluster {
+		t.Error("Cluster must be false with no topology")
+	}
+	if len(res.Nodes) != 0 || len(res.Shards) != 0 {
+		t.Errorf("want empty sets, got %v / %v", res.Nodes, res.Shards)
+	}
+	if res.Source != SourceCore {
+		t.Errorf("source = %q, want core", res.Source)
+	}
+
+	// The principal JWT must still be forwarded to Core.
+	select {
+	case tok := <-principalCh:
+		if tok == "" {
+			t.Error("forwarded principal token was empty")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("did not observe forwarded x-calystral-principal metadata")
+	}
+}
+
+func TestGRPCClusterTopologyMissingPrincipal(t *testing.T) {
+	addr, _ := startStubCore(t)
+	c := newTestGRPCClient(t, addr)
+	_, err := c.ClusterTopology(context.Background(), ClusterTopologyParams{TenantID: "demo-tenant"})
+	if err == nil {
+		t.Fatal("expected error with nil principal")
+	}
+}

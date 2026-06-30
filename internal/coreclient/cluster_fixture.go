@@ -58,6 +58,20 @@ func (f *Fixture) ClusterSummary(_ context.Context, _ ClusterSummaryParams) (*Cl
 	return &ClusterSummaryResult{Summary: f.summary, Source: SourceFixture}, nil
 }
 
+// ClusterTopology returns the seeded cluster as a single aggregate payload (the
+// fixture is a fully-populated multi-node cluster, so Cluster is true). Copies
+// of the node and shard slices are returned so callers cannot mutate the seed.
+func (f *Fixture) ClusterTopology(_ context.Context, _ ClusterTopologyParams) (*ClusterTopologyResult, error) {
+	summary := f.summary
+	return &ClusterTopologyResult{
+		Summary: &summary,
+		Nodes:   append([]NodeDTO(nil), f.nodes...),
+		Shards:  append([]ShardDTO(nil), f.shards...),
+		Cluster: f.summary.NodeCount > 1,
+		Source:  SourceFixture,
+	}, nil
+}
+
 // ListNodes applies region/status/q filters, then cursor-paginates a stable id
 // sort. The cluster is shared infrastructure, so results are not tenant-scoped.
 func (f *Fixture) ListNodes(_ context.Context, p ListNodesParams) (*ListNodesResult, error) {

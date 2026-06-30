@@ -139,6 +139,7 @@ func (s *Server) routes(opts Options) http.Handler {
 			r.Get("/cluster", s.handleClusterSummary)
 			r.Get("/cluster/nodes", s.handleClusterNodes)
 			r.Get("/cluster/shards", s.handleClusterShards)
+			r.Get("/cluster/topology", s.handleClusterTopology)
 			r.Get("/runtime", s.handleRuntimeSummary)
 			r.Get("/runtime/opcodes", s.handleRuntimeOpcodes)
 			r.Get("/runtime/plan-cache", s.handleRuntimePlanCache)
