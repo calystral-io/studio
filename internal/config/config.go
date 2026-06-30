@@ -32,13 +32,34 @@ const (
 
 // Config is the fully-resolved BFF configuration.
 type Config struct {
-	HTTPAddr          string
-	AuthMode          AuthMode
-	CoreSource        CoreSource
-	CoreGRPCAddr      string
+	HTTPAddr     string
+	AuthMode     AuthMode
+	CoreSource   CoreSource
+	CoreGRPCAddr string
+	// CoreGRPCAddrs is the cluster-mode replica set: the BFF fans out cluster
+	// topology reads across all of these Core replicas and aggregates them. Empty
+	// means single-node (dial CoreGRPCAddr only); use CoreReplicaAddrs to read the
+	// effective list, which is always non-empty.
+	CoreGRPCAddrs     []string
 	CoreDevSigningKey string
 	CORSOrigins       []string
 	LogLevel          string
+}
+
+// CoreReplicaAddrs is the effective set of Core replica addresses to dial: the
+// explicit cluster-mode list when set, else the single CoreGRPCAddr. Always
+// returns at least one address.
+func (c Config) CoreReplicaAddrs() []string {
+	if len(c.CoreGRPCAddrs) > 0 {
+		return c.CoreGRPCAddrs
+	}
+	return []string{c.CoreGRPCAddr}
+}
+
+// ClusterMode reports whether more than one Core replica is configured, i.e. the
+// BFF should fan cluster reads out across replicas rather than dialing one node.
+func (c Config) ClusterMode() bool {
+	return len(c.CoreGRPCAddrs) > 1
 }
 
 // Defaults returns the contract section 8 defaults.
@@ -60,6 +81,7 @@ const (
 	EnvAuthMode          = "STUDIO_AUTH_MODE"
 	EnvCoreSource        = "STUDIO_CORE_SOURCE"
 	EnvCoreGRPCAddr      = "STUDIO_CORE_GRPC_ADDR"
+	EnvCoreGRPCAddrs     = "STUDIO_CORE_GRPC_ADDRS"
 	EnvCoreDevSigningKey = "STUDIO_CORE_DEV_SIGNING_KEY"
 	EnvCORSOrigins       = "STUDIO_CORS_ORIGINS"
 	EnvLogLevel          = "STUDIO_LOG_LEVEL"
@@ -75,6 +97,7 @@ type Flags struct {
 	AuthMode          *string
 	CoreSource        *string
 	CoreGRPCAddr      *string
+	CoreGRPCAddrs     *string
 	CoreDevSigningKey *string
 	CORSOrigins       *string
 	LogLevel          *string
@@ -101,6 +124,9 @@ func Load(lookup Lookup, flags Flags) (Config, error) {
 	if v, ok := lookup(EnvCoreGRPCAddr); ok {
 		c.CoreGRPCAddr = v
 	}
+	if v, ok := lookup(EnvCoreGRPCAddrs); ok {
+		c.CoreGRPCAddrs = splitList(v)
+	}
 	if v, ok := lookup(EnvCoreDevSigningKey); ok {
 		c.CoreDevSigningKey = v
 	}
@@ -123,6 +149,9 @@ func Load(lookup Lookup, flags Flags) (Config, error) {
 	}
 	if flags.CoreGRPCAddr != nil {
 		c.CoreGRPCAddr = *flags.CoreGRPCAddr
+	}
+	if flags.CoreGRPCAddrs != nil {
+		c.CoreGRPCAddrs = splitList(*flags.CoreGRPCAddrs)
 	}
 	if flags.CoreDevSigningKey != nil {
 		c.CoreDevSigningKey = *flags.CoreDevSigningKey
@@ -151,10 +180,23 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("invalid %s %q (want fixture|grpc)", EnvCoreSource, c.CoreSource)
 	}
+	if c.CoreSource == CoreSourceGRPC {
+		for _, addr := range c.CoreReplicaAddrs() {
+			if strings.TrimSpace(addr) == "" {
+				return fmt.Errorf("%s=grpc requires a non-empty Core address (%s / %s)",
+					EnvCoreSource, EnvCoreGRPCAddr, EnvCoreGRPCAddrs)
+			}
+		}
+	}
 	return nil
 }
 
 func splitOrigins(v string) []string {
+	return splitList(v)
+}
+
+// splitList parses a comma-separated value into trimmed, non-empty entries.
+func splitList(v string) []string {
 	parts := strings.Split(v, ",")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {

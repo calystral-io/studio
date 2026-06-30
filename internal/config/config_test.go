@@ -104,3 +104,82 @@ func TestLoadValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestCoreReplicaAddrsFallback(t *testing.T) {
+	// With no replica list, the effective set is the single CoreGRPCAddr and the
+	// BFF is not in cluster mode.
+	cfg, err := Load(mapLookup(map[string]string{EnvCoreGRPCAddr: "core-a:50051"}), Flags{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cfg.CoreReplicaAddrs(); !reflect.DeepEqual(got, []string{"core-a:50051"}) {
+		t.Errorf("replica addrs = %#v, want single", got)
+	}
+	if cfg.ClusterMode() {
+		t.Error("ClusterMode should be false with one replica")
+	}
+}
+
+func TestCoreGRPCAddrsEnablesClusterMode(t *testing.T) {
+	env := map[string]string{
+		EnvCoreSource:    "grpc",
+		EnvCoreGRPCAddrs: "core-a:50051, core-b:50051 ,core-c:50051,",
+	}
+	cfg, err := Load(mapLookup(env), Flags{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []string{"core-a:50051", "core-b:50051", "core-c:50051"}
+	if !reflect.DeepEqual(cfg.CoreGRPCAddrs, want) {
+		t.Errorf("addrs = %#v, want %#v (trimmed, empties dropped)", cfg.CoreGRPCAddrs, want)
+	}
+	if !reflect.DeepEqual(cfg.CoreReplicaAddrs(), want) {
+		t.Errorf("replica addrs = %#v", cfg.CoreReplicaAddrs())
+	}
+	if !cfg.ClusterMode() {
+		t.Error("ClusterMode should be true with three replicas")
+	}
+}
+
+func TestCoreGRPCAddrsFlagBeatsEnv(t *testing.T) {
+	env := map[string]string{EnvCoreGRPCAddrs: "env-a:1,env-b:2"}
+	cfg, err := Load(mapLookup(env), Flags{CoreGRPCAddrs: strptr("flag-a:1,flag-b:2,flag-c:3")})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := []string{"flag-a:1", "flag-b:2", "flag-c:3"}
+	if !reflect.DeepEqual(cfg.CoreGRPCAddrs, want) {
+		t.Errorf("addrs = %#v, want %#v", cfg.CoreGRPCAddrs, want)
+	}
+}
+
+func TestSingleReplicaListIsNotClusterMode(t *testing.T) {
+	// A one-entry replica list is single-node, not a fan-out cluster.
+	cfg, err := Load(mapLookup(map[string]string{EnvCoreGRPCAddrs: "only:50051"}), Flags{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.ClusterMode() {
+		t.Error("one replica must not be cluster mode")
+	}
+	if got := cfg.CoreReplicaAddrs(); !reflect.DeepEqual(got, []string{"only:50051"}) {
+		t.Errorf("replica addrs = %#v", got)
+	}
+}
+
+func TestGRPCSourceRequiresAddress(t *testing.T) {
+	// Explicitly blanking the address under grpc must be rejected, not silently
+	// dialed as "" (which would yield CoreReplicaAddrs == [""]).
+	_, err := Load(mapLookup(map[string]string{EnvCoreSource: "grpc", EnvCoreGRPCAddr: ""}), Flags{})
+	if err == nil {
+		t.Fatal("expected error: grpc source with empty address")
+	}
+	// A blank entry inside the replica list is likewise rejected... but splitList
+	// drops empties, so an all-blank list falls back to the (default) single addr,
+	// which is non-empty - so this still loads. Verify the all-empty explicit list
+	// + blanked single addr is the rejected case.
+	_, err = Load(mapLookup(map[string]string{EnvCoreSource: "grpc", EnvCoreGRPCAddr: "", EnvCoreGRPCAddrs: " , ,"}), Flags{})
+	if err == nil {
+		t.Fatal("expected error: grpc source with no usable address")
+	}
+}

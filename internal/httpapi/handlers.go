@@ -366,6 +366,61 @@ func (s *Server) handleClusterShards(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, shardsResponse{Items: res.Items, Page: res.Page, Source: res.Source})
 }
 
+// clusterTopologyResponse is the single-payload cluster view aggregated across
+// Core replicas (contract section 12.1). `cluster` reports whether Core is a
+// multi-node cluster; `summary` is null and the sets empty when no replica has
+// cluster topology to report (single-node Core, or Core's topology gap today) -
+// the honest no-cluster-info shape, never a fabricated rollup.
+type clusterTopologyResponse struct {
+	Cluster bool                       `json:"cluster"`
+	Summary *coreclient.ClusterSummary `json:"summary"`
+	Nodes   []coreclient.NodeDTO       `json:"nodes"`
+	Shards  []coreclient.ShardDTO      `json:"shards"`
+	Source  string                     `json:"source"`
+}
+
+// handleClusterTopology serves the aggregated, single-payload cluster view the
+// BFF assembles by fanning out across all configured Core replicas. Requires the
+// reader role. The cluster is shared operator infrastructure (not tenant-scoped).
+func (s *Server) handleClusterTopology(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDOf(r)
+	p := principalFrom(r.Context())
+	if p == nil {
+		apierr.Write(w, reqID, apierr.Internal("missing principal on authenticated route"))
+		return
+	}
+	if !p.HasRole("reader") {
+		apierr.Write(w, reqID, apierr.Forbidden())
+		return
+	}
+
+	res, err := s.core.ClusterTopology(r.Context(), coreclient.ClusterTopologyParams{
+		TenantID:  p.TenantID,
+		Principal: p,
+	})
+	if err != nil {
+		apierr.Write(w, reqID, err)
+		return
+	}
+
+	// Marshal absent sets as [] rather than null for a stable client contract.
+	nodes := res.Nodes
+	if nodes == nil {
+		nodes = []coreclient.NodeDTO{}
+	}
+	shards := res.Shards
+	if shards == nil {
+		shards = []coreclient.ShardDTO{}
+	}
+	writeJSON(w, http.StatusOK, clusterTopologyResponse{
+		Cluster: res.Cluster,
+		Summary: res.Summary,
+		Nodes:   nodes,
+		Shards:  shards,
+		Source:  res.Source,
+	})
+}
+
 // runtimeSummaryResponse is the cvm runtime rollup with a top-level `source` tag
 // (contract section 13). The embedded RuntimeSummary fields are promoted.
 type runtimeSummaryResponse struct {

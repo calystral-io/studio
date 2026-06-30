@@ -67,6 +67,7 @@ func serveCmd() *cobra.Command {
 	f.String("auth-mode", "", "auth mode: mock|nexus ("+config.EnvAuthMode+")")
 	f.String("core-source", "", "node source: fixture|grpc ("+config.EnvCoreSource+")")
 	f.String("core-grpc-addr", "", "Core gRPC endpoint ("+config.EnvCoreGRPCAddr+")")
+	f.String("core-grpc-addrs", "", "comma-separated Core replica endpoints for cluster fan-out ("+config.EnvCoreGRPCAddrs+")")
 	f.String("core-dev-signing-key", "", "dev EdDSA signing key path/inline ("+config.EnvCoreDevSigningKey+")")
 	f.String("cors-origins", "", "comma-separated allowed origins ("+config.EnvCORSOrigins+")")
 	f.String("log-level", "", "log level: debug|info|warn|error ("+config.EnvLogLevel+")")
@@ -87,6 +88,7 @@ func flagOverrides(cmd *cobra.Command) config.Flags {
 		AuthMode:          get("auth-mode"),
 		CoreSource:        get("core-source"),
 		CoreGRPCAddr:      get("core-grpc-addr"),
+		CoreGRPCAddrs:     get("core-grpc-addrs"),
 		CoreDevSigningKey: get("core-dev-signing-key"),
 		CORSOrigins:       get("cors-origins"),
 		LogLevel:          get("log-level"),
@@ -174,7 +176,14 @@ func buildCoreClient(cfg config.Config, logger *slog.Logger) (coreclient.CoreCli
 			logger.Warn("using an ephemeral dev EdDSA signing key for x-calystral-principal; set " +
 				config.EnvCoreDevSigningKey + " for a stable dev key")
 		}
-		return coreclient.NewGRPCClient(cfg.CoreGRPCAddr, signer)
+		addrs := cfg.CoreReplicaAddrs()
+		if cfg.ClusterMode() {
+			// Multiple Core replicas: fan cluster topology reads out across all of
+			// them and aggregate (other reads go to the primary).
+			logger.Info("core cluster mode: fanning out across replicas", "replicas", addrs)
+			return coreclient.NewFanoutClient(addrs, signer)
+		}
+		return coreclient.NewGRPCClient(addrs[0], signer)
 	default:
 		return nil, fmt.Errorf("unsupported core source %q", cfg.CoreSource)
 	}

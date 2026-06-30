@@ -317,11 +317,72 @@ func TestClusterRequiresAuth(t *testing.T) {
 
 func TestClusterForbiddenWithoutReader(t *testing.T) {
 	s := New(rolelessAuth{}, coreclient.NewFixture(), quietLogger(), Options{})
-	for _, target := range []string{"/api/v1/cluster", "/api/v1/cluster/nodes", "/api/v1/cluster/shards"} {
+	for _, target := range []string{"/api/v1/cluster", "/api/v1/cluster/nodes", "/api/v1/cluster/shards", "/api/v1/cluster/topology"} {
 		rec := do(t, s, http.MethodGet, target, "any")
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("%s status = %d", target, rec.Code)
 		}
+	}
+}
+
+type clusterTopologyBody struct {
+	Cluster bool                  `json:"cluster"`
+	Summary *clusterSummaryBody   `json:"summary"`
+	Nodes   []coreclient.NodeDTO  `json:"nodes"`
+	Shards  []coreclient.ShardDTO `json:"shards"`
+	Source  string                `json:"source"`
+}
+
+func TestClusterTopologyFixtureHappyPath(t *testing.T) {
+	s := newFixtureServer()
+	rec := do(t, s, http.MethodGet, "/api/v1/cluster/topology", "mock-reader-token")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body clusterTopologyBody
+	decode(t, rec, &body)
+
+	if body.Source != "fixture" {
+		t.Errorf("source = %q, want fixture", body.Source)
+	}
+	if !body.Cluster {
+		t.Error("fixture is a multi-node cluster; cluster must be true")
+	}
+	if body.Summary == nil {
+		t.Fatal("summary must be present for a populated cluster")
+	}
+	if body.Summary.NodeCount != 9 || body.Summary.ShardCount != 144 {
+		t.Errorf("summary counts = nodes %d shards %d", body.Summary.NodeCount, body.Summary.ShardCount)
+	}
+	if len(body.Nodes) != 9 || len(body.Shards) != 144 {
+		t.Errorf("rows = %d nodes / %d shards", len(body.Nodes), len(body.Shards))
+	}
+}
+
+func TestClusterTopologyGRPCReturnsNoClusterInfoNot501(t *testing.T) {
+	// The KEY D1 behavior: against today's Core (UNIMPLEMENTED cluster reads), the
+	// topology endpoint returns 200 with the honest no-cluster-info shape - NOT the
+	// 501 the paginated cluster endpoints return. Empty IS the correct state until
+	// Core's cluster topology (RaftTransport + read path) lands.
+	s := newGRPCFixtureServer(t)
+	rec := do(t, s, http.MethodGet, "/api/v1/cluster/topology", "mock-reader-token")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200 (no-cluster-info, not 501)", rec.Code, rec.Body.String())
+	}
+	var body clusterTopologyBody
+	decode(t, rec, &body)
+	if body.Source != "core" {
+		t.Errorf("source = %q, want core", body.Source)
+	}
+	if body.Cluster {
+		t.Error("cluster must be false with no topology")
+	}
+	if body.Summary != nil {
+		t.Errorf("summary = %+v, want null", body.Summary)
+	}
+	// Sets must marshal as [] not null.
+	if body.Nodes == nil || len(body.Nodes) != 0 || body.Shards == nil || len(body.Shards) != 0 {
+		t.Errorf("nodes/shards must be empty arrays, got %v / %v", body.Nodes, body.Shards)
 	}
 }
 

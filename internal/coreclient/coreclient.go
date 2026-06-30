@@ -287,6 +287,35 @@ type ListShardsResult struct {
 	Source string
 }
 
+// ClusterTopologyParams carries the validated inputs for the aggregated cluster
+// topology read. Like the other cluster surfaces it is not tenant-scoped, but
+// the Principal is carried so the gRPC adapter can mint the principal JWT for
+// each replica it fans out to.
+type ClusterTopologyParams struct {
+	TenantID  string
+	Principal *auth.Principal
+}
+
+// ClusterTopologyResult is the single-payload cluster view the BFF assembles by
+// fanning out across all configured Core replicas: the derived rollup plus the
+// unioned node and shard sets.
+//
+// Cluster reports whether more than one node was OBSERVED across the reachable
+// replicas. It reflects observed membership, not declared deployment size: a
+// multi-node cluster partitioned down to one reachable node reports Cluster=false
+// (honest to what was seen). Summary is nil - and Nodes/Shards empty - when no
+// replica has any cluster topology to report: a single-node Core, or (today) a
+// cluster whose Core build does not yet serve topology over its gRPC surface.
+// That nil/empty shape is the honest "no cluster info" state, NEVER a fabricated
+// rollup. Source is "fixture" or "core".
+type ClusterTopologyResult struct {
+	Summary *ClusterSummary
+	Nodes   []NodeDTO
+	Shards  []ShardDTO
+	Cluster bool
+	Source  string
+}
+
 // --- Runtime state (contract sections 13/14/15) ----------------------------
 //
 // The runtime view is an OPERATOR observability surface over the cvm execution
@@ -683,6 +712,7 @@ type CoreClient interface {
 	ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error)
 	ListNodes(ctx context.Context, p ListNodesParams) (*ListNodesResult, error)
 	ListShards(ctx context.Context, p ListShardsParams) (*ListShardsResult, error)
+	ClusterTopology(ctx context.Context, p ClusterTopologyParams) (*ClusterTopologyResult, error)
 	RuntimeSummary(ctx context.Context, p RuntimeSummaryParams) (*RuntimeSummaryResult, error)
 	ListOpcodes(ctx context.Context, p ListOpcodesParams) (*ListOpcodesResult, error)
 	ListPlanCacheEntries(ctx context.Context, p ListPlanCacheEntriesParams) (*ListPlanCacheEntriesResult, error)
