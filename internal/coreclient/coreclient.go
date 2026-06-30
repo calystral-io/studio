@@ -300,8 +300,10 @@ type ClusterTopologyParams struct {
 // fanning out across all configured Core replicas: the derived rollup plus the
 // unioned node and shard sets.
 //
-// Cluster reports whether Core is actually running as a multi-node cluster (more
-// than one node observed). Summary is nil - and Nodes/Shards empty - when no
+// Cluster reports whether more than one node was OBSERVED across the reachable
+// replicas. It reflects observed membership, not declared deployment size: a
+// multi-node cluster partitioned down to one reachable node reports Cluster=false
+// (honest to what was seen). Summary is nil - and Nodes/Shards empty - when no
 // replica has any cluster topology to report: a single-node Core, or (today) a
 // cluster whose Core build does not yet serve topology over its gRPC surface.
 // That nil/empty shape is the honest "no cluster info" state, NEVER a fabricated

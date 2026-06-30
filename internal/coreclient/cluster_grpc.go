@@ -13,9 +13,21 @@ package coreclient
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	"github.com/calystral-io/studio/internal/apierr"
 )
+
+// replicaTopologyTimeout bounds a single replica's whole topology fetch (all its
+// node + shard pages). Without it a black-hole replica - one that accepts the TCP
+// connection but never answers the RPC - would block the fan-out's WaitGroup
+// forever and leak the goroutine; the headline "skip an unreachable replica"
+// resilience must cover hung replicas, not just connection-refused ones. On
+// expiry the read fails with DeadlineExceeded, which maps to Unavailable: the
+// single-node path returns 502, the fan-out path skips the replica. It is a var
+// (not a const) only so tests can shorten it.
+var replicaTopologyTimeout = 5 * time.Second
 
 // nodeLister and shardLister are the cluster reads ClusterTopology drains. Both
 // the gRPC client and the fixture satisfy clusterReader, so the drain + fetch
@@ -49,10 +61,14 @@ func drainNodes(ctx context.Context, c nodeLister, p ClusterTopologyParams) ([]N
 		}
 		out = append(out, res.Items...)
 		if !res.Page.HasMore || res.Page.NextCursor == nil {
-			break
+			return out, nil
 		}
 		cursor = *res.Page.NextCursor
 	}
+	// Hit the page cap with more pages outstanding: log rather than truncate
+	// silently, so an unexpectedly huge node set is visible to operators.
+	slog.Warn("cluster topology: node drain hit page cap, result may be truncated",
+		"max_pages", clusterTopologyMaxPages, "collected", len(out))
 	return out, nil
 }
 
@@ -72,18 +88,23 @@ func drainShards(ctx context.Context, c shardLister, p ClusterTopologyParams) ([
 		}
 		out = append(out, res.Items...)
 		if !res.Page.HasMore || res.Page.NextCursor == nil {
-			break
+			return out, nil
 		}
 		cursor = *res.Page.NextCursor
 	}
+	slog.Warn("cluster topology: shard drain hit page cap, result may be truncated",
+		"max_pages", clusterTopologyMaxPages, "collected", len(out))
 	return out, nil
 }
 
-// fetchReplicaTopology reads one replica's nodes and shards. UNIMPLEMENTED on
-// either listing means the replica has no topology to contribute (folded to an
-// empty set, not an error); any other error (transport / unavailable) propagates
-// so the caller can decide whether the whole read fails.
+// fetchReplicaTopology reads one replica's nodes and shards under a bounded
+// per-replica deadline (so a hung replica cannot stall the fan-out). UNIMPLEMENTED
+// on either listing means the replica has no topology to contribute (folded to an
+// empty set, not an error); any other error (transport / unavailable / deadline)
+// propagates so the caller can decide whether the whole read fails.
 func fetchReplicaTopology(ctx context.Context, c clusterReader, p ClusterTopologyParams) ([]NodeDTO, []ShardDTO, error) {
+	ctx, cancel := context.WithTimeout(ctx, replicaTopologyTimeout)
+	defer cancel()
 	nodes, err := drainNodes(ctx, c, p)
 	if err != nil && !isUnimplemented(err) {
 		return nil, nil, err

@@ -166,3 +166,20 @@ func TestSingleReplicaListIsNotClusterMode(t *testing.T) {
 		t.Errorf("replica addrs = %#v", got)
 	}
 }
+
+func TestGRPCSourceRequiresAddress(t *testing.T) {
+	// Explicitly blanking the address under grpc must be rejected, not silently
+	// dialed as "" (which would yield CoreReplicaAddrs == [""]).
+	_, err := Load(mapLookup(map[string]string{EnvCoreSource: "grpc", EnvCoreGRPCAddr: ""}), Flags{})
+	if err == nil {
+		t.Fatal("expected error: grpc source with empty address")
+	}
+	// A blank entry inside the replica list is likewise rejected... but splitList
+	// drops empties, so an all-blank list falls back to the (default) single addr,
+	// which is non-empty - so this still loads. Verify the all-empty explicit list
+	// + blanked single addr is the rejected case.
+	_, err = Load(mapLookup(map[string]string{EnvCoreSource: "grpc", EnvCoreGRPCAddr: "", EnvCoreGRPCAddrs: " , ,"}), Flags{})
+	if err == nil {
+		t.Fatal("expected error: grpc source with no usable address")
+	}
+}

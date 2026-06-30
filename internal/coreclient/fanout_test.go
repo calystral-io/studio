@@ -2,12 +2,43 @@ package coreclient
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/calystral-io/studio/internal/apierr"
 	"github.com/calystral-io/studio/internal/auth"
+	"github.com/calystral-io/studio/internal/corepb/querypb"
 )
+
+// hangingQueryServer accepts the connection but never answers until its context
+// is cancelled - a black-hole replica (partition / dropped packets), the case a
+// connection-refused stub does NOT exercise.
+type hangingQueryServer struct {
+	querypb.UnimplementedQueryServiceServer
+}
+
+func (s *hangingQueryServer) Query(ctx context.Context, _ *querypb.QueryRequest) (*querypb.QueryResponse, error) {
+	<-ctx.Done()
+	return nil, status.Error(codes.DeadlineExceeded, "hung")
+}
+
+func startHangingCore(t *testing.T) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := grpc.NewServer()
+	querypb.RegisterQueryServiceServer(srv, &hangingQueryServer{})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	return lis.Addr().String()
+}
 
 func newTestFanout(t *testing.T, addrs []string) *FanoutClient {
 	t.Helper()
@@ -124,5 +155,52 @@ func TestNewFanoutClientRejectsEmptyAddrs(t *testing.T) {
 	signer, _ := auth.NewPrincipalSigner("")
 	if _, err := NewFanoutClient(nil, signer); err == nil {
 		t.Fatal("expected error with no replica addresses")
+	}
+}
+
+func TestFanoutClusterTopologySkipsHungReplica(t *testing.T) {
+	// A black-hole replica (accepts the connection, never answers) must be bounded
+	// by the per-replica deadline and skipped - not block the whole fan-out. With
+	// a healthy replica present, the read still succeeds.
+	old := replicaTopologyTimeout
+	replicaTopologyTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { replicaTopologyTimeout = old })
+
+	good, _ := startStubCore(t)
+	hung := startHangingCore(t)
+	fc := newTestFanout(t, []string{good, hung})
+
+	start := time.Now()
+	res, err := fc.ClusterTopology(context.Background(), ClusterTopologyParams{
+		TenantID:  "demo-tenant",
+		Principal: readerPrincipal(),
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("hung replica must be skipped (healthy one reachable), got %v", err)
+	}
+	if res.Cluster || res.Summary != nil {
+		t.Errorf("want no-cluster-info shape, got %+v", res)
+	}
+	// Bounded by the deadline, not hung indefinitely (generous ceiling for CI).
+	if elapsed > 3*time.Second {
+		t.Errorf("fan-out took %v - a hung replica blocked the request", elapsed)
+	}
+}
+
+func TestFanoutAllReplicasHungReturns502(t *testing.T) {
+	// Every replica black-holed -> bounded, then 502 (not an infinite hang).
+	old := replicaTopologyTimeout
+	replicaTopologyTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { replicaTopologyTimeout = old })
+
+	fc := newTestFanout(t, []string{startHangingCore(t), startHangingCore(t)})
+	_, err := fc.ClusterTopology(context.Background(), ClusterTopologyParams{
+		TenantID:  "demo-tenant",
+		Principal: readerPrincipal(),
+	})
+	ae, ok := err.(*apierr.APIError)
+	if !ok || ae.Code != apierr.CodeUnavailable {
+		t.Fatalf("err = %v, want unavailable", err)
 	}
 }

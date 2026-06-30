@@ -705,8 +705,10 @@ Response 200:
 }
 ```
 
-- `cluster` (bool): true when Core reports a multi-node cluster (more than one
-  node observed); false for a single-node Core or when no topology is available.
+- `cluster` (bool): true when more than one node was OBSERVED across the reachable
+  replicas; false for a single-node Core, when no topology is available, or when a
+  multi-node cluster is partitioned down to one reachable node (the flag reflects
+  observed membership, not declared deployment size).
 - `summary` (`ClusterSummary` | null): the derived rollup, or `null` when no
   replica has cluster topology to report. `region_count` and `replication_factor`
   are derived from the rows themselves (not seed constants).

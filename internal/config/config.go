@@ -180,6 +180,14 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("invalid %s %q (want fixture|grpc)", EnvCoreSource, c.CoreSource)
 	}
+	if c.CoreSource == CoreSourceGRPC {
+		for _, addr := range c.CoreReplicaAddrs() {
+			if strings.TrimSpace(addr) == "" {
+				return fmt.Errorf("%s=grpc requires a non-empty Core address (%s / %s)",
+					EnvCoreSource, EnvCoreGRPCAddr, EnvCoreGRPCAddrs)
+			}
+		}
+	}
 	return nil
 }
 
