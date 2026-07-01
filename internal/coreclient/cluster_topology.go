@@ -44,34 +44,33 @@ func isUnimplemented(err error) bool {
 	return ok && c == apierr.CodeUnimplemented
 }
 
-// unionNodes dedups nodes by id (first occurrence wins) and returns them sorted
-// by id, so a replica reporting overlapping membership never double-counts.
-func unionNodes(in []NodeDTO) []NodeDTO {
+// unionByID dedups items by a stable key (first occurrence wins), so a replica
+// reporting overlapping membership never double-counts. Order is not defined
+// here; callers sort.
+func unionByID[T any](in []T, id func(T) string) []T {
 	seen := make(map[string]struct{}, len(in))
-	out := make([]NodeDTO, 0, len(in))
-	for _, n := range in {
-		if _, dup := seen[n.ID]; dup {
+	out := make([]T, 0, len(in))
+	for _, v := range in {
+		k := id(v)
+		if _, dup := seen[k]; dup {
 			continue
 		}
-		seen[n.ID] = struct{}{}
-		out = append(out, n)
+		seen[k] = struct{}{}
+		out = append(out, v)
 	}
+	return out
+}
+
+// unionNodes dedups nodes by id and returns them sorted by id.
+func unionNodes(in []NodeDTO) []NodeDTO {
+	out := unionByID(in, func(n NodeDTO) string { return n.ID })
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
-// unionShards dedups shards by id (first occurrence wins) and returns them
-// sorted by id.
+// unionShards dedups shards by id and returns them sorted by id.
 func unionShards(in []ShardDTO) []ShardDTO {
-	seen := make(map[string]struct{}, len(in))
-	out := make([]ShardDTO, 0, len(in))
-	for _, s := range in {
-		if _, dup := seen[s.ID]; dup {
-			continue
-		}
-		seen[s.ID] = struct{}{}
-		out = append(out, s)
-	}
+	out := unionByID(in, func(s ShardDTO) string { return s.ID })
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }

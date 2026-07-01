@@ -195,3 +195,56 @@ func TestFetchReplicaTopologyPropagatesUnavailable(t *testing.T) {
 		t.Errorf("code = %q, want unavailable", c)
 	}
 }
+
+func TestFetchReplicaTopologyFoldsShardUnimplemented(t *testing.T) {
+	// Node listing succeeds; shard listing is UNIMPLEMENTED. The shard side must
+	// fold to empty (not error), and the node rows are kept.
+	fr := &fakeReader{
+		nodePages: [][]NodeDTO{{mkNode("a", "r", NodeUp)}},
+		shardErr:  apierr.Unimplemented(clusterShardsSurface),
+	}
+	nodes, shards, err := fetchReplicaTopology(context.Background(), fr, ClusterTopologyParams{})
+	if err != nil {
+		t.Fatalf("shard UNIMPLEMENTED must fold, got err %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Errorf("nodes = %d, want 1 (node side kept)", len(nodes))
+	}
+	if len(shards) != 0 {
+		t.Errorf("shards = %d, want 0 (shard side folded)", len(shards))
+	}
+}
+
+func TestFetchReplicaTopologyPropagatesShardUnavailable(t *testing.T) {
+	// Node listing succeeds; shard listing is Unavailable. That is a real failure
+	// on the shard side and must propagate, not fold.
+	fr := &fakeReader{
+		nodePages: [][]NodeDTO{{mkNode("a", "r", NodeUp)}},
+		shardErr:  apierr.Unavailable(clusterShardsSurface),
+	}
+	_, _, err := fetchReplicaTopology(context.Background(), fr, ClusterTopologyParams{})
+	if err == nil {
+		t.Fatal("expected shard-side unavailable to propagate")
+	}
+	if c, _ := apiErrCode(err); c != apierr.CodeUnavailable {
+		t.Errorf("code = %q, want unavailable", c)
+	}
+}
+
+func TestUnionByIDDedupsPreservingFirst(t *testing.T) {
+	// The shared generic keeps the first occurrence of a duplicate key.
+	in := []NodeDTO{
+		{ID: "x", Region: "first"},
+		{ID: "x", Region: "second"},
+		{ID: "y", Region: "only"},
+	}
+	out := unionByID(in, func(n NodeDTO) string { return n.ID })
+	if len(out) != 2 {
+		t.Fatalf("len = %d, want 2", len(out))
+	}
+	for _, n := range out {
+		if n.ID == "x" && n.Region != "first" {
+			t.Errorf("dup kept %q, want the first occurrence", n.Region)
+		}
+	}
+}

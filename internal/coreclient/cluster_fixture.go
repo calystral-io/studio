@@ -59,10 +59,13 @@ func (f *Fixture) ClusterSummary(_ context.Context, _ ClusterSummaryParams) (*Cl
 }
 
 // ClusterTopology returns the seeded cluster as a single aggregate payload (the
-// fixture is a fully-populated multi-node cluster, so Cluster is true). Copies
-// of the node and shard slices are returned so callers cannot mutate the seed.
+// fixture is a fully-populated multi-node cluster, so Cluster is true). Copies of
+// the node and shard slices AND of the summary's Regions slice are returned so a
+// caller mutating the result can never corrupt the seed (the value copy of
+// f.summary otherwise still aliases the seed's Regions backing array).
 func (f *Fixture) ClusterTopology(_ context.Context, _ ClusterTopologyParams) (*ClusterTopologyResult, error) {
 	summary := f.summary
+	summary.Regions = append([]RegionSummary(nil), f.summary.Regions...)
 	return &ClusterTopologyResult{
 		Summary: &summary,
 		Nodes:   append([]NodeDTO(nil), f.nodes...),
