@@ -610,3 +610,28 @@ func TestFixtureClusterTopology(t *testing.T) {
 		}
 	}
 }
+
+func TestFixtureClusterTopologyDeepCopiesRegions(t *testing.T) {
+	// The contract advertises a copy: mutating the returned summary's Regions must
+	// not corrupt the seed (a shallow struct copy would still alias the backing
+	// array).
+	f := NewFixture()
+	res, err := f.ClusterTopology(context.Background(), ClusterTopologyParams{})
+	if err != nil {
+		t.Fatalf("topology: %v", err)
+	}
+	if res.Summary == nil || len(res.Summary.Regions) == 0 {
+		t.Fatal("expected a populated summary with regions")
+	}
+	res.Summary.Regions[0].Name = "tampered"
+
+	again, _ := f.ClusterTopology(context.Background(), ClusterTopologyParams{})
+	if again.Summary.Regions[0].Name == "tampered" {
+		t.Error("summary.Regions must be a copy, not the live seed slice")
+	}
+	// The paginated summary endpoint must be untouched too.
+	sum, _ := f.ClusterSummary(context.Background(), ClusterSummaryParams{})
+	if sum.Summary.Regions[0].Name == "tampered" {
+		t.Error("ClusterSummary seed corrupted via ClusterTopology's shared slice")
+	}
+}

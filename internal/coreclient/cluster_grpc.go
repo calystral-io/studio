@@ -43,13 +43,34 @@ type clusterReader interface {
 	shardLister
 }
 
-// drainNodes pages a replica's full node set (the cluster view is unpaginated to
-// its caller). It stops at clusterTopologyMaxPages so a stuck upstream cursor
-// cannot loop forever.
-func drainNodes(ctx context.Context, c nodeLister, p ClusterTopologyParams) ([]NodeDTO, error) {
-	var out []NodeDTO
+// drainPages pages a replica's full set of some listing (the cluster view is
+// unpaginated to its caller). `fetchPage` returns one page's items plus its
+// pagination signal. It stops at clusterTopologyMaxPages so a stuck upstream
+// cursor cannot loop forever, logging rather than truncating silently so an
+// unexpectedly huge set is visible to operators. `kind` names the listing in
+// that log line.
+func drainPages[T any](kind string, fetchPage func(cursor string) (items []T, next *string, hasMore bool, err error)) ([]T, error) {
+	var out []T
 	cursor := ""
 	for page := 0; page < clusterTopologyMaxPages; page++ {
+		items, next, hasMore, err := fetchPage(cursor)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+		if !hasMore || next == nil {
+			return out, nil
+		}
+		cursor = *next
+	}
+	slog.Warn("cluster topology: drain hit page cap, result may be truncated",
+		"listing", kind, "max_pages", clusterTopologyMaxPages, "collected", len(out))
+	return out, nil
+}
+
+// drainNodes pages a replica's full node set.
+func drainNodes(ctx context.Context, c nodeLister, p ClusterTopologyParams) ([]NodeDTO, error) {
+	return drainPages("nodes", func(cursor string) ([]NodeDTO, *string, bool, error) {
 		res, err := c.ListNodes(ctx, ListNodesParams{
 			TenantID:  p.TenantID,
 			PageSize:  clusterTopologyPageSize,
@@ -57,26 +78,15 @@ func drainNodes(ctx context.Context, c nodeLister, p ClusterTopologyParams) ([]N
 			Principal: p.Principal,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, false, err
 		}
-		out = append(out, res.Items...)
-		if !res.Page.HasMore || res.Page.NextCursor == nil {
-			return out, nil
-		}
-		cursor = *res.Page.NextCursor
-	}
-	// Hit the page cap with more pages outstanding: log rather than truncate
-	// silently, so an unexpectedly huge node set is visible to operators.
-	slog.Warn("cluster topology: node drain hit page cap, result may be truncated",
-		"max_pages", clusterTopologyMaxPages, "collected", len(out))
-	return out, nil
+		return res.Items, res.Page.NextCursor, res.Page.HasMore, nil
+	})
 }
 
-// drainShards pages a replica's full shard set, bounded like drainNodes.
+// drainShards pages a replica's full shard set.
 func drainShards(ctx context.Context, c shardLister, p ClusterTopologyParams) ([]ShardDTO, error) {
-	var out []ShardDTO
-	cursor := ""
-	for page := 0; page < clusterTopologyMaxPages; page++ {
+	return drainPages("shards", func(cursor string) ([]ShardDTO, *string, bool, error) {
 		res, err := c.ListShards(ctx, ListShardsParams{
 			TenantID:  p.TenantID,
 			PageSize:  clusterTopologyPageSize,
@@ -84,17 +94,10 @@ func drainShards(ctx context.Context, c shardLister, p ClusterTopologyParams) ([
 			Principal: p.Principal,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, false, err
 		}
-		out = append(out, res.Items...)
-		if !res.Page.HasMore || res.Page.NextCursor == nil {
-			return out, nil
-		}
-		cursor = *res.Page.NextCursor
-	}
-	slog.Warn("cluster topology: shard drain hit page cap, result may be truncated",
-		"max_pages", clusterTopologyMaxPages, "collected", len(out))
-	return out, nil
+		return res.Items, res.Page.NextCursor, res.Page.HasMore, nil
+	})
 }
 
 // fetchReplicaTopology reads one replica's nodes and shards under a bounded
