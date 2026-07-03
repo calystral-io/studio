@@ -353,6 +353,7 @@ func seedCluster() (nodes []NodeDTO, shards []ShardDTO, summary ClusterSummary) 
 				Address:       nodeAddress(r, idx),
 				Region:        clusterRegions[r],
 				Status:        status,
+				RaftRole:      raftRoleFor(idx),
 				ShardCount:    shardCountByNode[nid],
 				LeaderCount:   leaderCountByNode[nid],
 				RaftTerm:      maxTermByNode[nid],
@@ -428,6 +429,23 @@ func deriveSummary(nodes []NodeDTO, shards []ShardDTO, observedAt time.Time) Clu
 		ShardHealth:       counts,
 		Regions:           regions,
 		ObservedAt:        observedAt,
+	}
+}
+
+// raftRoleFor assigns a control-plane raft role to a seeded node by its 1-based
+// index. Representative demo data (source:"fixture"): most nodes follow, one
+// leads, and one of each transient election phase is present so the UI exercises
+// all four badges. Real roles arrive from Core once the cluster read path lands.
+func raftRoleFor(idx int) string {
+	switch idx {
+	case 1:
+		return RaftRoleLeader
+	case 2:
+		return RaftRoleCandidate
+	case 3:
+		return RaftRolePreCandidate
+	default:
+		return RaftRoleFollower
 	}
 }
 

@@ -190,6 +190,16 @@ type ClusterSummary struct {
 	ObservedAt        time.Time         `json:"observed_at"`
 }
 
+// Raft role of a node in the cluster control-plane raft group (contract section
+// 11). One of these four; "pre_candidate" is the PreVote phase before a node
+// stands for election.
+const (
+	RaftRoleLeader       = "leader"
+	RaftRoleFollower     = "follower"
+	RaftRoleCandidate    = "candidate"
+	RaftRolePreCandidate = "pre_candidate"
+)
+
 // NodeDTO is one cvm cluster node as the operator UI renders it (contract
 // section 11). Times are UTC.
 type NodeDTO struct {
@@ -197,6 +207,7 @@ type NodeDTO struct {
 	Address       string    `json:"address"`
 	Region        string    `json:"region"`
 	Status        string    `json:"status"`
+	RaftRole      string    `json:"raft_role"`
 	ShardCount    int       `json:"shard_count"`
 	LeaderCount   int       `json:"leader_count"`
 	RaftTerm      int       `json:"raft_term"`

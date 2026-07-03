@@ -654,6 +654,8 @@ operator infrastructure, so it is NOT tenant-scoped. All endpoints require
 => "degraded".
 
 `NodeDTO`: `id`, `address`, `region`, `status` ("up"|"draining"|"down"),
+`raft_role` ("leader"|"follower"|"candidate"|"pre_candidate" - the node's role in
+the cluster control-plane raft group; "pre_candidate" is the PreVote phase),
 `shard_count`, `leader_count`, `raft_term` (int), `used_bytes`, `capacity_bytes`
 (int64), `version`, `last_heartbeat` (RFC3339).
 

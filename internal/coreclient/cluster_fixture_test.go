@@ -635,3 +635,34 @@ func TestFixtureClusterTopologyDeepCopiesRegions(t *testing.T) {
 		t.Error("ClusterSummary seed corrupted via ClusterTopology's shared slice")
 	}
 }
+
+func TestFixtureClusterNodeRaftRoles(t *testing.T) {
+	f := NewFixture()
+	valid := map[string]bool{
+		RaftRoleLeader: true, RaftRoleFollower: true, RaftRoleCandidate: true, RaftRolePreCandidate: true,
+	}
+	seen := map[string]int{}
+	for _, n := range f.nodes {
+		if !valid[n.RaftRole] {
+			t.Errorf("node %s has invalid raft_role %q", n.ID, n.RaftRole)
+		}
+		seen[n.RaftRole]++
+	}
+	// The seed exercises every badge: at least one of each role, with followers
+	// the majority.
+	for role := range valid {
+		if seen[role] == 0 {
+			t.Errorf("seed must include at least one %q node (for UI coverage)", role)
+		}
+	}
+	if seen[RaftRoleFollower] < seen[RaftRoleLeader] {
+		t.Errorf("followers (%d) should outnumber leaders (%d)", seen[RaftRoleFollower], seen[RaftRoleLeader])
+	}
+	// raft_role rides through the topology aggregate unchanged.
+	topo, _ := f.ClusterTopology(context.Background(), ClusterTopologyParams{})
+	for _, n := range topo.Nodes {
+		if !valid[n.RaftRole] {
+			t.Errorf("topology node %s has invalid raft_role %q", n.ID, n.RaftRole)
+		}
+	}
+}
