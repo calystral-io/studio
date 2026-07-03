@@ -53,23 +53,37 @@ func (f *Fixture) NodeCount() int { return len(f.nodes) }
 func (f *Fixture) ShardCount() int { return len(f.shards) }
 
 // ClusterSummary returns the precomputed cluster rollup. The cluster is shared
-// operator infrastructure, so it is not tenant-scoped.
+// operator infrastructure, so it is not tenant-scoped. The summary is copied
+// (incl. its Regions slice) so a caller mutating the result cannot corrupt the
+// long-lived seed - the same copy contract ClusterTopology honors.
 func (f *Fixture) ClusterSummary(_ context.Context, _ ClusterSummaryParams) (*ClusterSummaryResult, error) {
-	return &ClusterSummaryResult{Summary: f.summary, Source: SourceFixture}, nil
+	return &ClusterSummaryResult{Summary: f.copySummary(), Source: SourceFixture}, nil
+}
+
+// copySummary returns a mutation-safe copy of the seeded summary: a value copy
+// plus a fresh Regions backing array (the only mutable field; RegionSummary and
+// ShardHealthCounts are all scalars and time.Time is immutable).
+func (f *Fixture) copySummary() ClusterSummary {
+	s := f.summary
+	s.Regions = append([]RegionSummary(nil), f.summary.Regions...)
+	return s
 }
 
 // ClusterTopology returns the seeded cluster as a single aggregate payload (the
-// fixture is a fully-populated multi-node cluster, so Cluster is true). Copies of
-// the node and shard slices AND of the summary's Regions slice are returned so a
-// caller mutating the result can never corrupt the seed (the value copy of
-// f.summary otherwise still aliases the seed's Regions backing array).
+// fixture is a fully-populated multi-node cluster, so Cluster is true). The
+// summary, node slice, and shard slice - including each shard's ReplicaNodeIDs -
+// are copied so a caller mutating any part of the result can never corrupt the
+// long-lived seed.
 func (f *Fixture) ClusterTopology(_ context.Context, _ ClusterTopologyParams) (*ClusterTopologyResult, error) {
-	summary := f.summary
-	summary.Regions = append([]RegionSummary(nil), f.summary.Regions...)
+	summary := f.copySummary()
+	shards := append([]ShardDTO(nil), f.shards...)
+	for i := range shards {
+		shards[i].ReplicaNodeIDs = append([]string(nil), shards[i].ReplicaNodeIDs...)
+	}
 	return &ClusterTopologyResult{
 		Summary: &summary,
 		Nodes:   append([]NodeDTO(nil), f.nodes...),
-		Shards:  append([]ShardDTO(nil), f.shards...),
+		Shards:  shards,
 		Cluster: f.summary.NodeCount > 1,
 		Source:  SourceFixture,
 	}, nil

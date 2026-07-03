@@ -635,3 +635,49 @@ func TestFixtureClusterTopologyDeepCopiesRegions(t *testing.T) {
 		t.Error("ClusterSummary seed corrupted via ClusterTopology's shared slice")
 	}
 }
+
+func TestFixtureClusterSummaryDeepCopiesRegions(t *testing.T) {
+	// ClusterSummary returns the same struct by value; mutating its Regions must
+	// not corrupt the long-lived seed (guards the sibling of the ClusterTopology
+	// copy fix).
+	f := NewFixture()
+	res, err := f.ClusterSummary(context.Background(), ClusterSummaryParams{})
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if len(res.Summary.Regions) == 0 {
+		t.Fatal("expected seeded regions")
+	}
+	res.Summary.Regions[0].Name = "tampered"
+
+	again, _ := f.ClusterSummary(context.Background(), ClusterSummaryParams{})
+	if again.Summary.Regions[0].Name == "tampered" {
+		t.Error("ClusterSummary.Regions must be a copy, not the live seed slice")
+	}
+}
+
+func TestFixtureClusterTopologyDeepCopiesReplicaIDs(t *testing.T) {
+	// Each returned shard's ReplicaNodeIDs must be a copy too - the whole result
+	// payload is mutation-safe, not just its top-level slices.
+	f := NewFixture()
+	res, err := f.ClusterTopology(context.Background(), ClusterTopologyParams{})
+	if err != nil {
+		t.Fatalf("topology: %v", err)
+	}
+	var idx int = -1
+	for i, sh := range res.Shards {
+		if len(sh.ReplicaNodeIDs) > 0 {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("expected a shard with replicas")
+	}
+	res.Shards[idx].ReplicaNodeIDs[0] = "tampered"
+
+	again, _ := f.ClusterTopology(context.Background(), ClusterTopologyParams{})
+	if again.Shards[idx].ReplicaNodeIDs[0] == "tampered" {
+		t.Error("shard ReplicaNodeIDs must be a copy, not the live seed slice")
+	}
+}

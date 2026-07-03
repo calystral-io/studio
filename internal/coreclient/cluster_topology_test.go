@@ -248,3 +248,38 @@ func TestUnionByIDDedupsPreservingFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestUnionByIDShardInstantiation(t *testing.T) {
+	// Exercise the generic on the ShardDTO type too (nodes covered above).
+	out := unionShards([]ShardDTO{
+		mkShard("s2", "r", ShardHealthy, 3),
+		mkShard("s1", "r", ShardHealthy, 3),
+		mkShard("s2", "r", ShardDegraded, 3), // dup id -> dropped (first wins)
+	})
+	if len(out) != 2 || out[0].ID != "s1" || out[1].ID != "s2" {
+		t.Fatalf("union shards = %+v, want deduped+sorted [s1,s2]", out)
+	}
+	if out[1].Status != ShardHealthy {
+		t.Errorf("dup kept %q, want first occurrence (healthy)", out[1].Status)
+	}
+}
+
+func TestDrainPagesLogsAndStopsAtCap(t *testing.T) {
+	// A replica that never stops paging must be bounded by the page cap (and not
+	// loop forever). fetchPage always reports more, so drainPages hits the cap.
+	calls := 0
+	out, err := drainPages("nodes", func(_ string) ([]NodeDTO, *string, bool, error) {
+		calls++
+		next := "c"
+		return []NodeDTO{mkNode("n", "r", NodeUp)}, &next, true, nil
+	})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if calls != clusterTopologyMaxPages {
+		t.Errorf("fetched %d pages, want cap %d", calls, clusterTopologyMaxPages)
+	}
+	if len(out) != clusterTopologyMaxPages {
+		t.Errorf("collected %d, want %d", len(out), clusterTopologyMaxPages)
+	}
+}
