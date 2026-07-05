@@ -232,6 +232,10 @@ func (c *GRPCClient) GetNeighborhood(ctx context.Context, p NeighborhoodParams) 
 	if p.AsOf != nil {
 		req.AsOfUnixMs = uint64(p.AsOf.UnixMilli())
 	}
+	// NOTE: like ListAnchors, p.SystemAsOf (system-time projection) has no field on
+	// querypb.QueryRequest, so it cannot be honored over gRPC yet; the surface
+	// returns 501 below regardless.
+	// TODO(PR-core-decode): thread p.SystemAsOf once the proto carries it.
 	resp, err := c.query.Query(ctx, req)
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, nodeNeighborhoodSurface)
@@ -297,6 +301,12 @@ func (c *GRPCClient) applyMutation(
 		Mutations: []*mutatepb.Mutation{{Kind: kind, Payload: payload}},
 	})
 	if err != nil {
+		// NOTE: correct/close carry ExpectedLSN (optimistic-concurrency precondition).
+		// The fixture maps a conflict to 412 precondition_failed; mapCoreErrorForSurface
+		// currently funnels an unmapped code (e.g. FailedPrecondition) to 500. When
+		// Core's Mutate handler lands, add a codes.FailedPrecondition -> 412 case
+		// (with expected/actual from the error detail) so the two backends agree.
+		// TODO(PR-core-mutate): map FailedPrecondition -> PreconditionFailed.
 		return nil, mapCoreErrorForSurface(err, surface)
 	}
 	return resp, nil
