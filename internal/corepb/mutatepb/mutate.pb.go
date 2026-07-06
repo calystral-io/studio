@@ -200,7 +200,15 @@ type MutateResponse struct {
 	// The committed transaction id.
 	TxnId uint64 `protobuf:"varint,1,opt,name=txn_id,json=txnId,proto3" json:"txn_id,omitempty"`
 	// Number of anchors affected by the transaction.
-	Affected      uint64 `protobuf:"varint,2,opt,name=affected,proto3" json:"affected,omitempty"`
+	Affected uint64 `protobuf:"varint,2,opt,name=affected,proto3" json:"affected,omitempty"`
+	// The store's durable commit LSN after the transaction: the bitemporal
+	// position the write is visible at (from cvm's durable_lsn()).
+	CommitLsn uint64 `protobuf:"varint,3,opt,name=commit_lsn,json=commitLsn,proto3" json:"commit_lsn,omitempty"`
+	// The raw anchor ids created by the transaction, in application order (the
+	// create-node / create-edge results echoed back so a client learns the new
+	// anchors without a follow-up read). Empty for a transaction that only
+	// updates or closes existing anchors.
+	Created       []uint64 `protobuf:"varint,4,rep,packed,name=created,proto3" json:"created,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -249,6 +257,20 @@ func (x *MutateResponse) GetAffected() uint64 {
 	return 0
 }
 
+func (x *MutateResponse) GetCommitLsn() uint64 {
+	if x != nil {
+		return x.CommitLsn
+	}
+	return 0
+}
+
+func (x *MutateResponse) GetCreated() []uint64 {
+	if x != nil {
+		return x.Created
+	}
+	return nil
+}
+
 var File_mutate_proto protoreflect.FileDescriptor
 
 const file_mutate_proto_rawDesc = "" +
@@ -259,10 +281,13 @@ const file_mutate_proto_rawDesc = "" +
 	"\tmutations\x18\x02 \x03(\v2\".calystral.core.v1.mutate.MutationR\tmutations\"`\n" +
 	"\bMutation\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.calystral.core.v1.mutate.MutationKindR\x04kind\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\fR\apayload\"C\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\"|\n" +
 	"\x0eMutateResponse\x12\x15\n" +
 	"\x06txn_id\x18\x01 \x01(\x04R\x05txnId\x12\x1a\n" +
-	"\baffected\x18\x02 \x01(\x04R\baffected*\x9e\x01\n" +
+	"\baffected\x18\x02 \x01(\x04R\baffected\x12\x1d\n" +
+	"\n" +
+	"commit_lsn\x18\x03 \x01(\x04R\tcommitLsn\x12\x18\n" +
+	"\acreated\x18\x04 \x03(\x04R\acreated*\x9e\x01\n" +
 	"\fMutationKind\x12\x1d\n" +
 	"\x19MUTATION_KIND_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19MUTATION_KIND_CREATE_NODE\x10\x01\x12\x1d\n" +
