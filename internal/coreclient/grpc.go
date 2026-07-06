@@ -280,8 +280,15 @@ func (c *GRPCClient) CloseAnchor(ctx context.Context, p CloseAnchorParams) (*Anc
 }
 
 // applyMutation forwards a single-mutation transaction to Core's MutateService,
-// minting + attaching the principal JWT and mapping the gRPC status. Today Core's
-// mutate handler returns UNIMPLEMENTED, which maps to the contract 501.
+// minting + attaching the principal JWT and mapping the gRPC status. Core's
+// Mutate handler is now live (it decodes the payload through Core's wire
+// contract - ported to Go in internal/cybrwire - and commits), so the remaining
+// write-path gap is host-side: the BFF cannot yet build a VALID payload because
+// binding a tenant's string type/field/anchor names to the numeric ids the wire
+// needs (schema id resolution) is unbuilt - Core's schema read returns definition
+// source text, not an id map. Until that lands the interim payload below is
+// non-cybr, and a live Core rejects it invalid_argument (see wire_contract_test.go),
+// so this path is not yet exercised against real Core.
 func (c *GRPCClient) applyMutation(
 	ctx context.Context,
 	principal *auth.Principal,
@@ -312,14 +319,17 @@ func (c *GRPCClient) applyMutation(
 	return resp, nil
 }
 
-// mutationResultTODO handles a committed MutateResponse. Building the resulting
-// AnchorDTO (the current version, plus the superseded prior for correct/close)
-// requires reading it back through the cybr decoder, which lands with the read
-// pipeline; until then we report the honest gap rather than fabricate the
+// mutationResultTODO handles a committed MutateResponse. The response now carries
+// the committed txn id, commit LSN, and the created anchor ids (commit_lsn +
+// created were added to the proto), so a create's result could be built from the
+// request fields plus resp.Created/resp.CommitLsn without a read-back; a correct/
+// close result still needs the superseded prior version, which depends on the read
+// pipeline. This is unreachable until the write path can send a valid payload
+// (schema id resolution), so it reports the honest gap rather than fabricate the
 // committed anchor.
 func mutationResultTODO(resp *mutatepb.MutateResponse, surface string) (*AnchorMutationResult, error) {
-	// TODO(PR-core-decode): read back txn resp.TxnId and decode the resulting
-	// AnchorDTO(s) once the shared cybr decoder lands.
+	// TODO(PR-core-mutate): build a create's AnchorDTO from the request + resp
+	// (Created/CommitLsn); read back the superseded prior for correct/close.
 	_ = resp
 	return nil, apierr.Unimplemented(surface)
 }
@@ -953,12 +963,15 @@ func formatCoordinate(validAt time.Time, systemAt *time.Time) string {
 
 // --- Mutation payload encoding ------------------------------------------------
 //
-// MutateService carries each operation as opaque cybr value bytes. The canonical
-// cybr value codec is a Rust contract not yet ported to Go, so - exactly as the
-// read path sends plausible CyQL text - these encoders marshal the operation to
-// deterministic JSON as an INTERIM placeholder. Core returns UNIMPLEMENTED
-// regardless today; swap mutationPayload for the cybr encoder before Core's
-// Mutate handler lands.
+// MutateService carries each operation as opaque cybr value bytes. That codec is
+// now ported to Go (internal/cybrwire, matching core/src/{proc/wire,mutate}.rs),
+// but these encoders still emit deterministic JSON as an INTERIM placeholder
+// because building a real cybr payload needs the numeric type/field/anchor ids
+// the BFF cannot yet resolve (schema id resolution is unbuilt; Core's schema read
+// returns source text, not an id map). Core's Mutate handler is live and rejects
+// this non-cybr JSON invalid_argument. Swap these for cybrwire.EncodeMutation
+// once name->id resolution + an any->Value conversion land; the encode/dispatch/
+// decode path is already proven end-to-end in wire_contract_test.go.
 
 func mutationPayload(op map[string]any) []byte {
 	// json.Marshal sorts map keys, so the encoding is deterministic.

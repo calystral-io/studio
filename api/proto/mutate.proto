@@ -46,4 +46,12 @@ message MutateResponse {
   uint64 txn_id = 1;
   // Number of anchors affected by the transaction.
   uint64 affected = 2;
+  // The store's durable commit LSN after the transaction: the bitemporal
+  // position the write is visible at (from cvm's durable_lsn()).
+  uint64 commit_lsn = 3;
+  // The raw anchor ids created by the transaction, in application order (the
+  // create-node / create-edge results echoed back so a client learns the new
+  // anchors without a follow-up read). Empty for a transaction that only
+  // updates or closes existing anchors.
+  repeated uint64 created = 4;
 }
