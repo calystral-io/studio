@@ -244,7 +244,7 @@ func newGRPCFixtureServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	core, err := coreclient.NewGRPCClient(lis.Addr().String(), signer)
+	core, err := coreclient.NewGRPCClient(lis.Addr().String(), signer, coreclient.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

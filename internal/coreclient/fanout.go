@@ -28,14 +28,15 @@ var _ CoreClient = (*FanoutClient)(nil)
 
 // NewFanoutClient dials every replica address and returns a CoreClient that fans
 // cluster topology out across them. addrs must be non-empty; addrs[0] is the
-// primary. On any dial failure it closes the replicas already opened.
-func NewFanoutClient(addrs []string, signer *auth.PrincipalSigner) (*FanoutClient, error) {
+// primary. Every replica is dialed with the same opts (TLS + logger). On any
+// dial failure it closes the replicas already opened.
+func NewFanoutClient(addrs []string, signer *auth.PrincipalSigner, opts Options) (*FanoutClient, error) {
 	if len(addrs) == 0 {
 		return nil, fmt.Errorf("fanout core client: no replica addresses")
 	}
 	replicas := make([]*GRPCClient, 0, len(addrs))
 	for _, addr := range addrs {
-		c, err := NewGRPCClient(addr, signer)
+		c, err := NewGRPCClient(addr, signer, opts)
 		if err != nil {
 			for _, opened := range replicas {
 				_ = opened.Close()

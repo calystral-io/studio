@@ -46,7 +46,7 @@ func newTestFanout(t *testing.T, addrs []string) *FanoutClient {
 	if err != nil {
 		t.Fatalf("signer: %v", err)
 	}
-	fc, err := NewFanoutClient(addrs, signer)
+	fc, err := NewFanoutClient(addrs, signer, Options{})
 	if err != nil {
 		t.Fatalf("new fanout: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestFanoutDelegatesNonClusterReadsToPrimary(t *testing.T) {
 
 func TestNewFanoutClientRejectsEmptyAddrs(t *testing.T) {
 	signer, _ := auth.NewPrincipalSigner("")
-	if _, err := NewFanoutClient(nil, signer); err == nil {
+	if _, err := NewFanoutClient(nil, signer, Options{}); err == nil {
 		t.Fatal("expected error with no replica addresses")
 	}
 }

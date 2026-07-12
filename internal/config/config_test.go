@@ -183,3 +183,42 @@ func TestGRPCSourceRequiresAddress(t *testing.T) {
 		t.Fatal("expected error: grpc source with no usable address")
 	}
 }
+
+func TestCoreTLSAllOrNothing(t *testing.T) {
+	base := map[string]string{EnvCoreSource: "grpc", EnvCoreGRPCAddr: "core:8443"}
+	// All three set: loads, and CoreTLSEnabled reports true.
+	full := map[string]string{
+		EnvCoreTLSCert: "/tls/tls.crt", EnvCoreTLSKey: "/tls/tls.key", EnvCoreTLSCA: "/tls/ca.crt",
+	}
+	for k, v := range base {
+		full[k] = v
+	}
+	cfg, err := Load(mapLookup(full), Flags{})
+	if err != nil {
+		t.Fatalf("load full TLS set: %v", err)
+	}
+	if !cfg.CoreTLSEnabled() {
+		t.Fatal("CoreTLSEnabled = false with all three files set")
+	}
+
+	// Any partial subset is rejected.
+	for _, missing := range []string{EnvCoreTLSCert, EnvCoreTLSKey, EnvCoreTLSCA} {
+		env := map[string]string{}
+		for k, v := range full {
+			env[k] = v
+		}
+		delete(env, missing)
+		if _, err := Load(mapLookup(env), Flags{}); err == nil {
+			t.Errorf("expected error with %s missing, got nil", missing)
+		}
+	}
+
+	// None set: loads, plaintext (fixture/local) path.
+	cfg, err = Load(mapLookup(base), Flags{})
+	if err != nil {
+		t.Fatalf("load no TLS: %v", err)
+	}
+	if cfg.CoreTLSEnabled() {
+		t.Fatal("CoreTLSEnabled = true with no files set")
+	}
+}

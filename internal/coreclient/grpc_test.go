@@ -63,7 +63,7 @@ func newTestGRPCClient(t *testing.T, addr string) *GRPCClient {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	c := newGRPCClientWithConn(conn, signer)
+	c := newGRPCClientWithConn(conn, signer, nil)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
@@ -146,7 +146,7 @@ func TestGRPCCheckCoreOK(t *testing.T) {
 func TestGRPCCheckCoreUnavailable(t *testing.T) {
 	// Nothing listening on this address.
 	signer, _ := auth.NewPrincipalSigner("")
-	c, err := NewGRPCClient("127.0.0.1:1", signer)
+	c, err := NewGRPCClient("127.0.0.1:1", signer, Options{})
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}
