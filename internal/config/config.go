@@ -227,13 +227,15 @@ func (c Config) validate() error {
 					EnvCoreSource, EnvCoreGRPCAddr, EnvCoreGRPCAddrs)
 			}
 		}
-	}
-	// The three Core TLS files are all-or-nothing: a partial set (e.g. a cert
-	// without its CA) cannot form a working mTLS dialer, so reject it loudly
-	// rather than silently falling back to plaintext against an mTLS edge.
-	if n := boolCount(c.CoreTLSCert != "", c.CoreTLSKey != "", c.CoreTLSCA != ""); n != 0 && n != 3 {
-		return fmt.Errorf("%s / %s / %s must be set together (got %d of 3)",
-			EnvCoreTLSCert, EnvCoreTLSKey, EnvCoreTLSCA, n)
+		// The three Core TLS files are all-or-nothing: a partial set (e.g. a cert
+		// without its CA) cannot form a working mTLS dialer, so reject it loudly
+		// rather than silently falling back to plaintext against an mTLS edge. Only
+		// enforced under grpc - the TLS files are irrelevant to the fixture source,
+		// so a stray env var must not block a fixture/local startup.
+		if n := boolCount(c.CoreTLSCert != "", c.CoreTLSKey != "", c.CoreTLSCA != ""); n != 0 && n != 3 {
+			return fmt.Errorf("%s / %s / %s must be set together (got %d of 3)",
+				EnvCoreTLSCert, EnvCoreTLSKey, EnvCoreTLSCA, n)
+		}
 	}
 	return nil
 }

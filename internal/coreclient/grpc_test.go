@@ -1,9 +1,12 @@
 package coreclient
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +156,29 @@ func TestGRPCCheckCoreUnavailable(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 	if got := c.CheckCore(context.Background()); got != CheckUnavailable {
 		t.Fatalf("check = %q, want unavailable", got)
+	}
+}
+
+// TestCheckCoreLogsOnlyOnTransition asserts a persistent outage logs the "not
+// ready" reason once (on the transition), not once per probe - so a long outage
+// does not flood the logs.
+func TestCheckCoreLogsOnlyOnTransition(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	signer, _ := auth.NewPrincipalSigner("")
+	c, err := NewGRPCClient("127.0.0.1:1", signer, Options{Logger: logger})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	for range 3 {
+		if got := c.CheckCore(context.Background()); got != CheckUnavailable {
+			t.Fatalf("check = %q, want unavailable", got)
+		}
+	}
+	if n := strings.Count(buf.String(), "core not ready"); n != 1 {
+		t.Fatalf("not-ready warnings = %d, want exactly 1 (transition only); logs:\n%s", n, buf.String())
 	}
 }
 

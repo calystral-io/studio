@@ -172,6 +172,10 @@ func buildAuthenticator(cfg config.Config) (auth.Authenticator, error) {
 func buildCoreClient(cfg config.Config, logger *slog.Logger) (coreclient.CoreClient, error) {
 	switch cfg.CoreSource {
 	case config.CoreSourceFixture:
+		if cfg.CoreTLSEnabled() {
+			logger.Warn("STUDIO_CORE_TLS_* is set but ignored under STUDIO_CORE_SOURCE=fixture " +
+				"(the fixture serves in-memory data and never dials Core); set STUDIO_CORE_SOURCE=grpc to use it")
+		}
 		return coreclient.NewFixture(), nil
 	case config.CoreSourceGRPC:
 		signer, err := auth.NewPrincipalSigner(cfg.CoreDevSigningKey)

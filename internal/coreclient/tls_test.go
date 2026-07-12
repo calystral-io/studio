@@ -186,6 +186,31 @@ func TestMTLSWrongCARejected(t *testing.T) {
 	}
 }
 
+// TestMTLSNonNodeIdentityRejected proves the identity check: a server cert
+// issued by the SAME trusted CA but WITHOUT a Core node SAN is rejected, so a
+// sibling same-CA workload (or a stolen serverAuth leaf) cannot masquerade as
+// Core even though its chain is valid.
+func TestMTLSNonNodeIdentityRejected(t *testing.T) {
+	ca := genCA(t, "calystral-ca-test")
+	// Same CA, valid serverAuth, but the SAN is not a Core node name.
+	impostor := genLeaf(t, ca, "grafana", "grafana.monitoring.svc", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	client := genLeaf(t, ca, "studio-bff", "studio-bff.clients.cvm.internal", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+
+	addr := startMTLSCore(t, impostor, ca)
+	tlsCfg := writeFiles(t, client, ca.certPEM())
+
+	signer, _ := auth.NewPrincipalSigner("")
+	c, err := NewGRPCClient(addr, signer, Options{TLS: tlsCfg})
+	if err != nil {
+		t.Fatalf("new mtls client: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	if got := c.CheckCore(context.Background()); got != CheckUnavailable {
+		t.Fatalf("CheckCore = %q, want unavailable (non-node identity must be refused)", got)
+	}
+}
+
 // TestTransportCredentialsErrors covers the misconfiguration paths.
 func TestTransportCredentialsErrors(t *testing.T) {
 	// nil TLS -> plaintext insecure creds, no error.

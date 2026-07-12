@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -70,6 +71,12 @@ type GRPCClient struct {
 	signer *auth.PrincipalSigner
 	dialTO time.Duration
 	logger *slog.Logger
+
+	// readyMu guards lastReady, the previous CheckCore verdict, so readiness is
+	// logged only when it transitions (avoiding one Warn per probe during an
+	// outage). It starts optimistic (true) so the first failure still logs.
+	readyMu   sync.Mutex
+	lastReady bool
 }
 
 // NewGRPCClient dials addr (lazily; the connection is established on first use)
@@ -85,24 +92,26 @@ func NewGRPCClient(addr string, signer *auth.PrincipalSigner, opts Options) (*GR
 		return nil, fmt.Errorf("dial core %q: %w", addr, err)
 	}
 	return &GRPCClient{
-		conn:   conn,
-		query:  querypb.NewQueryServiceClient(conn),
-		mutate: mutatepb.NewMutateServiceClient(conn),
-		signer: signer,
-		dialTO: 3 * time.Second,
-		logger: loggerOrDefault(opts.Logger),
+		conn:      conn,
+		query:     querypb.NewQueryServiceClient(conn),
+		mutate:    mutatepb.NewMutateServiceClient(conn),
+		signer:    signer,
+		dialTO:    3 * time.Second,
+		logger:    loggerOrDefault(opts.Logger),
+		lastReady: true,
 	}, nil
 }
 
 // newGRPCClientWithConn is a test seam binding an existing connection.
 func newGRPCClientWithConn(conn *grpc.ClientConn, signer *auth.PrincipalSigner, logger *slog.Logger) *GRPCClient {
 	return &GRPCClient{
-		conn:   conn,
-		query:  querypb.NewQueryServiceClient(conn),
-		mutate: mutatepb.NewMutateServiceClient(conn),
-		signer: signer,
-		dialTO: 3 * time.Second,
-		logger: loggerOrDefault(logger),
+		conn:      conn,
+		query:     querypb.NewQueryServiceClient(conn),
+		mutate:    mutatepb.NewMutateServiceClient(conn),
+		signer:    signer,
+		dialTO:    3 * time.Second,
+		logger:    loggerOrDefault(logger),
+		lastReady: true,
 	}
 }
 
@@ -127,33 +136,54 @@ func (c *GRPCClient) Close() error {
 
 // CheckCore pings Core. A transport failure is "unavailable"; any application
 // response (including UNIMPLEMENTED or UNAUTHENTICATED) means Core is reachable,
-// hence "ok". Every "unavailable" verdict is logged at Warn with the underlying
-// gRPC error so an operator can see WHY /readyz is failing (e.g. a TLS/mTLS
-// handshake failure surfaces here as a fast Unavailable), rather than only that
-// it is.
+// hence "ok". The reason for an "unavailable" verdict (the underlying gRPC error
+// - e.g. a TLS/mTLS handshake failure that surfaces here as a fast Unavailable)
+// is logged, but only when readiness TRANSITIONS, so a persistent outage does
+// not emit one Warn per probe. See recordReadiness.
 func (c *GRPCClient) CheckCore(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, c.dialTO)
 	defer cancel()
 	_, err := c.query.Query(ctx, &querypb.QueryRequest{Cyql: "PING", Tenant: ""})
-	if err == nil {
-		return CheckOK
-	}
-	st, ok := status.FromError(err)
-	if !ok {
-		c.logger.Warn("core readiness check failed: non-status transport error (not ready)",
-			"target", c.conn.Target(), "err", err.Error())
-		return CheckUnavailable
-	}
-	switch st.Code() {
-	case codes.Unavailable, codes.DeadlineExceeded:
-		c.logger.Warn("core readiness check failed: core unreachable (not ready)",
-			"target", c.conn.Target(), "grpc_code", st.Code().String(), "detail", st.Message())
-		return CheckUnavailable
+
+	ready, reason := true, ""
+	switch {
+	case err == nil:
+		// reachable
 	default:
-		// An application-level status (UNIMPLEMENTED, UNAUTHENTICATED, ...) proves
-		// the request reached Core over a healthy transport, so readiness holds.
+		if st, ok := status.FromError(err); !ok {
+			ready, reason = false, "non-status transport error: "+err.Error()
+		} else if st.Code() == codes.Unavailable || st.Code() == codes.DeadlineExceeded {
+			ready, reason = false, st.Code().String()+": "+st.Message()
+		}
+		// Any other code is an application-level status (UNIMPLEMENTED,
+		// UNAUTHENTICATED, ...) which proves the request reached Core over a healthy
+		// transport, so readiness holds.
+	}
+
+	c.recordReadiness(ready, reason)
+	if ready {
 		return CheckOK
 	}
+	return CheckUnavailable
+}
+
+// recordReadiness logs a readiness change once: the first probe that finds Core
+// not ready logs a Warn carrying the reason (so an operator can see WHY /readyz
+// is failing), recovery logs an Info, and repeats at the same verdict are
+// silent - so a multi-day outage does not flood the logs.
+func (c *GRPCClient) recordReadiness(ready bool, reason string) {
+	c.readyMu.Lock()
+	changed := ready != c.lastReady
+	c.lastReady = ready
+	c.readyMu.Unlock()
+	if !changed {
+		return
+	}
+	if ready {
+		c.logger.Info("core readiness restored: core reachable again", "target", c.conn.Target())
+		return
+	}
+	c.logger.Warn("core readiness check failed: core not ready", "target", c.conn.Target(), "reason", reason)
 }
 
 // ListAnchors mints the principal JWT, issues the list-anchors CyQL read, and

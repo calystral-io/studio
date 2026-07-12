@@ -222,3 +222,18 @@ func TestCoreTLSAllOrNothing(t *testing.T) {
 		t.Fatal("CoreTLSEnabled = true with no files set")
 	}
 }
+
+// TestCoreTLSPartialIgnoredUnderFixture: the all-or-nothing rule is grpc-only,
+// so a stray TLS env var must not block a fixture/local startup.
+func TestCoreTLSPartialIgnoredUnderFixture(t *testing.T) {
+	// source=fixture (the default) + a single stray TLS var: must still load.
+	if _, err := Load(mapLookup(map[string]string{EnvCoreTLSCA: "/tls/ca.crt"}), Flags{}); err != nil {
+		t.Fatalf("fixture source with a stray TLS var should load, got: %v", err)
+	}
+	// The same partial set under grpc IS rejected.
+	if _, err := Load(mapLookup(map[string]string{
+		EnvCoreSource: "grpc", EnvCoreGRPCAddr: "core:8443", EnvCoreTLSCA: "/tls/ca.crt",
+	}), Flags{}); err == nil {
+		t.Fatal("grpc source with a partial TLS set should be rejected")
+	}
+}

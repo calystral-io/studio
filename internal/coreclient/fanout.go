@@ -10,7 +10,6 @@ package coreclient
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/calystral-io/studio/internal/apierr"
@@ -92,7 +91,7 @@ func (f *FanoutClient) ClusterTopology(ctx context.Context, p ClusterTopologyPar
 	reachable := 0
 	for i, res := range results {
 		if res.err != nil {
-			slog.Warn("cluster topology: replica unreachable, skipping",
+			f.logger.Warn("cluster topology: replica unreachable, skipping",
 				"replica", f.replicas[i].conn.Target(), "err", res.err)
 			continue
 		}

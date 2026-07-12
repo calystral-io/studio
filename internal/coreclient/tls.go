@@ -5,10 +5,17 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// coreNodeDNSSuffix is the DNS suffix cvm pins every Core node leaf certificate
+// to (node_dns_name = n<id>.nodes.cvm.internal). Requiring it constrains trust
+// to actual Core nodes, so a different workload holding some other serverAuth
+// leaf from the same internal CA is not accepted as Core.
+const coreNodeDNSSuffix = ".nodes.cvm.internal"
 
 // TLSConfig holds the file paths for the BFF's mutual-TLS identity when dialing
 // Core. All three must be present; the config layer enforces that invariant.
@@ -83,6 +90,25 @@ func verifyChainAgainst(roots *x509.CertPool) func([][]byte, [][]*x509.Certifica
 		}); err != nil {
 			return fmt.Errorf("core server certificate not trusted by configured CA: %w", err)
 		}
+		// CA trust alone is not identity. Because the edge L4-rotates per-node
+		// leaves we cannot pin one hostname, so instead require the leaf to carry a
+		// Core node SAN - otherwise any other serverAuth cert from the same CA
+		// (another workload, or one an attacker obtained) would be accepted as Core.
+		if !hasNodeSAN(leaf) {
+			return fmt.Errorf("core server certificate has no %q SAN (dns=%v); refusing non-node identity",
+				coreNodeDNSSuffix, leaf.DNSNames)
+		}
 		return nil
 	}
+}
+
+// hasNodeSAN reports whether cert presents at least one DNS SAN under the Core
+// node suffix.
+func hasNodeSAN(cert *x509.Certificate) bool {
+	for _, name := range cert.DNSNames {
+		if strings.HasSuffix(name, coreNodeDNSSuffix) {
+			return true
+		}
+	}
+	return false
 }
