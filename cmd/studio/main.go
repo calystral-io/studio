@@ -69,6 +69,9 @@ func serveCmd() *cobra.Command {
 	f.String("core-grpc-addr", "", "Core gRPC endpoint ("+config.EnvCoreGRPCAddr+")")
 	f.String("core-grpc-addrs", "", "comma-separated Core replica endpoints for cluster fan-out ("+config.EnvCoreGRPCAddrs+")")
 	f.String("core-dev-signing-key", "", "dev EdDSA signing key path/inline ("+config.EnvCoreDevSigningKey+")")
+	f.String("core-tls-cert", "", "client certificate for mTLS to Core ("+config.EnvCoreTLSCert+")")
+	f.String("core-tls-key", "", "client key for mTLS to Core ("+config.EnvCoreTLSKey+")")
+	f.String("core-tls-ca", "", "CA bundle verifying Core's server cert ("+config.EnvCoreTLSCA+")")
 	f.String("cors-origins", "", "comma-separated allowed origins ("+config.EnvCORSOrigins+")")
 	f.String("log-level", "", "log level: debug|info|warn|error ("+config.EnvLogLevel+")")
 	return cmd
@@ -90,6 +93,9 @@ func flagOverrides(cmd *cobra.Command) config.Flags {
 		CoreGRPCAddr:      get("core-grpc-addr"),
 		CoreGRPCAddrs:     get("core-grpc-addrs"),
 		CoreDevSigningKey: get("core-dev-signing-key"),
+		CoreTLSCert:       get("core-tls-cert"),
+		CoreTLSKey:        get("core-tls-key"),
+		CoreTLSCA:         get("core-tls-ca"),
 		CORSOrigins:       get("cors-origins"),
 		LogLevel:          get("log-level"),
 	}
@@ -166,6 +172,10 @@ func buildAuthenticator(cfg config.Config) (auth.Authenticator, error) {
 func buildCoreClient(cfg config.Config, logger *slog.Logger) (coreclient.CoreClient, error) {
 	switch cfg.CoreSource {
 	case config.CoreSourceFixture:
+		if cfg.CoreTLSEnabled() {
+			logger.Warn("STUDIO_CORE_TLS_* is set but ignored under STUDIO_CORE_SOURCE=fixture " +
+				"(the fixture serves in-memory data and never dials Core); set STUDIO_CORE_SOURCE=grpc to use it")
+		}
 		return coreclient.NewFixture(), nil
 	case config.CoreSourceGRPC:
 		signer, err := auth.NewPrincipalSigner(cfg.CoreDevSigningKey)
@@ -176,14 +186,26 @@ func buildCoreClient(cfg config.Config, logger *slog.Logger) (coreclient.CoreCli
 			logger.Warn("using an ephemeral dev EdDSA signing key for x-calystral-principal; set " +
 				config.EnvCoreDevSigningKey + " for a stable dev key")
 		}
+		opts := coreclient.Options{Logger: logger}
+		if cfg.CoreTLSEnabled() {
+			opts.TLS = &coreclient.TLSConfig{
+				CertFile: cfg.CoreTLSCert,
+				KeyFile:  cfg.CoreTLSKey,
+				CAFile:   cfg.CoreTLSCA,
+			}
+			logger.Info("core client: dialing over mutual TLS", "ca", cfg.CoreTLSCA, "cert", cfg.CoreTLSCert)
+		} else {
+			logger.Warn("core client: dialing Core in plaintext (no STUDIO_CORE_TLS_* configured); " +
+				"a live Core edge mandates mTLS and readiness will fail against it")
+		}
 		addrs := cfg.CoreReplicaAddrs()
 		if cfg.ClusterMode() {
 			// Multiple Core replicas: fan cluster topology reads out across all of
 			// them and aggregate (other reads go to the primary).
 			logger.Info("core cluster mode: fanning out across replicas", "replicas", addrs)
-			return coreclient.NewFanoutClient(addrs, signer)
+			return coreclient.NewFanoutClient(addrs, signer, opts)
 		}
-		return coreclient.NewGRPCClient(addrs[0], signer)
+		return coreclient.NewGRPCClient(addrs[0], signer, opts)
 	default:
 		return nil, fmt.Errorf("unsupported core source %q", cfg.CoreSource)
 	}

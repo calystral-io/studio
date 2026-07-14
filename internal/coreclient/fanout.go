@@ -10,7 +10,6 @@ package coreclient
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/calystral-io/studio/internal/apierr"
@@ -28,14 +27,15 @@ var _ CoreClient = (*FanoutClient)(nil)
 
 // NewFanoutClient dials every replica address and returns a CoreClient that fans
 // cluster topology out across them. addrs must be non-empty; addrs[0] is the
-// primary. On any dial failure it closes the replicas already opened.
-func NewFanoutClient(addrs []string, signer *auth.PrincipalSigner) (*FanoutClient, error) {
+// primary. Every replica is dialed with the same opts (TLS + logger). On any
+// dial failure it closes the replicas already opened.
+func NewFanoutClient(addrs []string, signer *auth.PrincipalSigner, opts Options) (*FanoutClient, error) {
 	if len(addrs) == 0 {
 		return nil, fmt.Errorf("fanout core client: no replica addresses")
 	}
 	replicas := make([]*GRPCClient, 0, len(addrs))
 	for _, addr := range addrs {
-		c, err := NewGRPCClient(addr, signer)
+		c, err := NewGRPCClient(addr, signer, opts)
 		if err != nil {
 			for _, opened := range replicas {
 				_ = opened.Close()
@@ -91,7 +91,7 @@ func (f *FanoutClient) ClusterTopology(ctx context.Context, p ClusterTopologyPar
 	reachable := 0
 	for i, res := range results {
 		if res.err != nil {
-			slog.Warn("cluster topology: replica unreachable, skipping",
+			f.logger.Warn("cluster topology: replica unreachable, skipping",
 				"replica", f.replicas[i].conn.Target(), "err", res.err)
 			continue
 		}

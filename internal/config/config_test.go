@@ -183,3 +183,57 @@ func TestGRPCSourceRequiresAddress(t *testing.T) {
 		t.Fatal("expected error: grpc source with no usable address")
 	}
 }
+
+func TestCoreTLSAllOrNothing(t *testing.T) {
+	base := map[string]string{EnvCoreSource: "grpc", EnvCoreGRPCAddr: "core:8443"}
+	// All three set: loads, and CoreTLSEnabled reports true.
+	full := map[string]string{
+		EnvCoreTLSCert: "/tls/tls.crt", EnvCoreTLSKey: "/tls/tls.key", EnvCoreTLSCA: "/tls/ca.crt",
+	}
+	for k, v := range base {
+		full[k] = v
+	}
+	cfg, err := Load(mapLookup(full), Flags{})
+	if err != nil {
+		t.Fatalf("load full TLS set: %v", err)
+	}
+	if !cfg.CoreTLSEnabled() {
+		t.Fatal("CoreTLSEnabled = false with all three files set")
+	}
+
+	// Any partial subset is rejected.
+	for _, missing := range []string{EnvCoreTLSCert, EnvCoreTLSKey, EnvCoreTLSCA} {
+		env := map[string]string{}
+		for k, v := range full {
+			env[k] = v
+		}
+		delete(env, missing)
+		if _, err := Load(mapLookup(env), Flags{}); err == nil {
+			t.Errorf("expected error with %s missing, got nil", missing)
+		}
+	}
+
+	// None set: loads, plaintext (fixture/local) path.
+	cfg, err = Load(mapLookup(base), Flags{})
+	if err != nil {
+		t.Fatalf("load no TLS: %v", err)
+	}
+	if cfg.CoreTLSEnabled() {
+		t.Fatal("CoreTLSEnabled = true with no files set")
+	}
+}
+
+// TestCoreTLSPartialIgnoredUnderFixture: the all-or-nothing rule is grpc-only,
+// so a stray TLS env var must not block a fixture/local startup.
+func TestCoreTLSPartialIgnoredUnderFixture(t *testing.T) {
+	// source=fixture (the default) + a single stray TLS var: must still load.
+	if _, err := Load(mapLookup(map[string]string{EnvCoreTLSCA: "/tls/ca.crt"}), Flags{}); err != nil {
+		t.Fatalf("fixture source with a stray TLS var should load, got: %v", err)
+	}
+	// The same partial set under grpc IS rejected.
+	if _, err := Load(mapLookup(map[string]string{
+		EnvCoreSource: "grpc", EnvCoreGRPCAddr: "core:8443", EnvCoreTLSCA: "/tls/ca.crt",
+	}), Flags{}); err == nil {
+		t.Fatal("grpc source with a partial TLS set should be rejected")
+	}
+}

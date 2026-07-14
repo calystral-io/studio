@@ -42,8 +42,24 @@ type Config struct {
 	// effective list, which is always non-empty.
 	CoreGRPCAddrs     []string
 	CoreDevSigningKey string
-	CORSOrigins       []string
-	LogLevel          string
+	// CoreTLSCert / CoreTLSKey / CoreTLSCA point at the client certificate, its
+	// key, and the CA bundle the BFF uses to dial Core over mTLS. When all three
+	// are set (source=grpc), the BFF presents the client cert and verifies Core's
+	// server cert against the CA; when all three are empty it dials plaintext
+	// (fixture/local dev). Core's edge mandates mTLS, so a live cluster must set
+	// them - see CoreTLSEnabled.
+	CoreTLSCert string
+	CoreTLSKey  string
+	CoreTLSCA   string
+	CORSOrigins []string
+	LogLevel    string
+}
+
+// CoreTLSEnabled reports whether mTLS to Core is configured (all three cert
+// files set). validate guarantees the all-or-nothing invariant, so testing one
+// field is sufficient everywhere else.
+func (c Config) CoreTLSEnabled() bool {
+	return c.CoreTLSCert != "" && c.CoreTLSKey != "" && c.CoreTLSCA != ""
 }
 
 // CoreReplicaAddrs is the effective set of Core replica addresses to dial: the
@@ -83,6 +99,9 @@ const (
 	EnvCoreGRPCAddr      = "STUDIO_CORE_GRPC_ADDR"
 	EnvCoreGRPCAddrs     = "STUDIO_CORE_GRPC_ADDRS"
 	EnvCoreDevSigningKey = "STUDIO_CORE_DEV_SIGNING_KEY"
+	EnvCoreTLSCert       = "STUDIO_CORE_TLS_CERT"
+	EnvCoreTLSKey        = "STUDIO_CORE_TLS_KEY"
+	EnvCoreTLSCA         = "STUDIO_CORE_TLS_CA"
 	EnvCORSOrigins       = "STUDIO_CORS_ORIGINS"
 	EnvLogLevel          = "STUDIO_LOG_LEVEL"
 )
@@ -99,6 +118,9 @@ type Flags struct {
 	CoreGRPCAddr      *string
 	CoreGRPCAddrs     *string
 	CoreDevSigningKey *string
+	CoreTLSCert       *string
+	CoreTLSKey        *string
+	CoreTLSCA         *string
 	CORSOrigins       *string
 	LogLevel          *string
 }
@@ -130,6 +152,15 @@ func Load(lookup Lookup, flags Flags) (Config, error) {
 	if v, ok := lookup(EnvCoreDevSigningKey); ok {
 		c.CoreDevSigningKey = v
 	}
+	if v, ok := lookup(EnvCoreTLSCert); ok {
+		c.CoreTLSCert = v
+	}
+	if v, ok := lookup(EnvCoreTLSKey); ok {
+		c.CoreTLSKey = v
+	}
+	if v, ok := lookup(EnvCoreTLSCA); ok {
+		c.CoreTLSCA = v
+	}
 	if v, ok := lookup(EnvCORSOrigins); ok {
 		c.CORSOrigins = splitOrigins(v)
 	}
@@ -155,6 +186,15 @@ func Load(lookup Lookup, flags Flags) (Config, error) {
 	}
 	if flags.CoreDevSigningKey != nil {
 		c.CoreDevSigningKey = *flags.CoreDevSigningKey
+	}
+	if flags.CoreTLSCert != nil {
+		c.CoreTLSCert = *flags.CoreTLSCert
+	}
+	if flags.CoreTLSKey != nil {
+		c.CoreTLSKey = *flags.CoreTLSKey
+	}
+	if flags.CoreTLSCA != nil {
+		c.CoreTLSCA = *flags.CoreTLSCA
 	}
 	if flags.CORSOrigins != nil {
 		c.CORSOrigins = splitOrigins(*flags.CORSOrigins)
@@ -187,8 +227,28 @@ func (c Config) validate() error {
 					EnvCoreSource, EnvCoreGRPCAddr, EnvCoreGRPCAddrs)
 			}
 		}
+		// The three Core TLS files are all-or-nothing: a partial set (e.g. a cert
+		// without its CA) cannot form a working mTLS dialer, so reject it loudly
+		// rather than silently falling back to plaintext against an mTLS edge. Only
+		// enforced under grpc - the TLS files are irrelevant to the fixture source,
+		// so a stray env var must not block a fixture/local startup.
+		if n := boolCount(c.CoreTLSCert != "", c.CoreTLSKey != "", c.CoreTLSCA != ""); n != 0 && n != 3 {
+			return fmt.Errorf("%s / %s / %s must be set together (got %d of 3)",
+				EnvCoreTLSCert, EnvCoreTLSKey, EnvCoreTLSCA, n)
+		}
 	}
 	return nil
+}
+
+// boolCount returns how many of the given flags are true.
+func boolCount(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
 }
 
 func splitOrigins(v string) []string {
