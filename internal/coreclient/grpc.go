@@ -374,12 +374,14 @@ func (c *GRPCClient) applyMutation(
 	})
 	if err != nil {
 		// NOTE: correct/close carry ExpectedLSN (optimistic-concurrency precondition).
-		// The fixture maps a conflict to 412 precondition_failed; mapCoreErrorForSurface
-		// currently funnels an unmapped code (e.g. FailedPrecondition) to 500. When
-		// Core's Mutate handler lands, add a codes.FailedPrecondition -> 412 case
+		// The fixture maps a conflict to 412 precondition_failed; mapCoreMutateError
+		// currently funnels an unmapped code (e.g. FailedPrecondition) to 500 and an
+		// INVALID_ARGUMENT (rejected payload / bad write) also to 500 - deliberately
+		// NOT the read path's 501 parser-gap fold. When Core's Mutate handler lands,
+		// add codes.FailedPrecondition -> 412 and codes.InvalidArgument -> 400/409
 		// (with expected/actual from the error detail) so the two backends agree.
 		// TODO(PR-core-mutate): map FailedPrecondition -> PreconditionFailed.
-		return nil, mapCoreErrorForSurface(err, surface)
+		return nil, mapCoreMutateError(err, surface)
 	}
 	return resp, nil
 }
@@ -944,8 +946,8 @@ func buildListSubscriptionsCyQL(p ListSubscriptionsParams) string {
 }
 
 // mapCoreError translates a gRPC status into a contract error for the anchors
-// surface. UNIMPLEMENTED is the honest upstream gap (501); transport failures
-// are 502 unavailable.
+// surface. UNIMPLEMENTED and a CyQL parse-reject (INVALID_ARGUMENT) are both the
+// honest "Core cannot serve this yet" gap (501); transport failures are 502.
 func mapCoreError(err error) error {
 	return mapCoreErrorForSurface(err, anchorsSurface)
 }
@@ -953,6 +955,15 @@ func mapCoreError(err error) error {
 // mapCoreErrorForSurface is mapCoreError parameterized by the contract surface
 // tag so every read path reports its own params.surface.
 func mapCoreErrorForSurface(err error, surface string) error {
+	return mapCoreStatus(err, surface, true)
+}
+
+// mapCoreStatus is the shared body of the read and mutate mappers. It parses the
+// gRPC status once and folds it to a contract error. foldInvalidArg selects the
+// one read/write difference: on reads INVALID_ARGUMENT is Core's CyQL parser
+// refusing a clause it does not yet cover, so it folds like UNIMPLEMENTED; on
+// writes it is a rejected payload / bad request and stays a 500.
+func mapCoreStatus(err error, surface string, foldInvalidArg bool) error {
 	st, ok := status.FromError(err)
 	if !ok {
 		return apierr.Unavailable(surface)
@@ -960,16 +971,58 @@ func mapCoreErrorForSurface(err error, surface string) error {
 	switch st.Code() {
 	case codes.Unimplemented:
 		return apierr.Unimplemented(surface)
+	case codes.InvalidArgument:
+		if foldInvalidArg {
+			// A read query rejected with INVALID_ARGUMENT today is Core's CyQL parser
+			// refusing a clause it does not yet cover (ORDER BY / LIMIT / property
+			// access) - the SAME "Core cannot serve this read yet" gap as
+			// UNIMPLEMENTED, not a client error, a transient outage, or an internal
+			// fault - so it gets the same fold: 501 on a data read, and (via
+			// isUnimplemented) the honest no-cluster-info shape on cluster-topology.
+			// Never an opaque 500, and never a retryable 502 that would invite a
+			// retry storm against a read that cannot succeed until the parser lands.
+			// The detail is logged, never wired.
+			slog.Warn("core rejected read query (cyql parser-coverage gap); folding to unimplemented",
+				"surface", surface, "detail", st.Message())
+			return apierr.Unimplemented(surface)
+		}
+		// Write path: a rejected payload / bad request, not a capability gap.
+		slog.Warn("core mutate rejected the request",
+			"surface", surface, "grpc_code", st.Code().String(), "detail", st.Message())
+		return apierr.Internal("")
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
 		return apierr.Unavailable(surface)
 	default:
-		// An unexpected upstream code may carry internal detail in its message;
-		// log it and return a generic envelope so nothing leaks on the wire (the
-		// same non-leaky posture Core takes for its own unmapped status codes).
-		slog.Warn("core query failed with unexpected status",
-			"grpc_code", st.Code().String(), "detail", st.Message())
+		// Every other code keeps its own semantics rather than being masked as a
+		// transient outage: auth denials, not-found, and optimistic-concurrency
+		// conflicts must not read as "Core is down", and a genuine Core-internal
+		// fault must stay distinguishable. An unmapped code stays a 500 (a precise
+		// per-code mapping - 403/404/409/412 - lands with the mutate/write surfaces;
+		// see the TODO in applyMutation). The detail is logged, never wired.
+		slog.Warn("core call failed with unmapped status",
+			"surface", surface, "grpc_code", st.Code().String(), "detail", st.Message())
 		return apierr.Internal("")
 	}
+}
+
+// mapCoreMutateError maps a write-path (Mutate) error. Unlike the read mapper it
+// does NOT fold INVALID_ARGUMENT to 501: on a mutation an invalid argument is a
+// rejected write payload / bad request, not a "surface unimplemented" capability
+// gap, so it must never be masked as one (Core's live Mutate handler rejects the
+// interim non-cybr payload with INVALID_ARGUMENT today, and a real bad write
+// later). A precise 400/409/412 mapping lands with the mutate/write surfaces -
+// see the TODO in applyMutation; until then an invalid argument stays a 500.
+// Every other code maps exactly as the read mapper does.
+// mapCoreMutateError maps a write-path (Mutate) error. Unlike the read mapper it
+// does NOT fold INVALID_ARGUMENT to 501: on a mutation an invalid argument is a
+// rejected write payload / bad request, not a "surface unimplemented" capability
+// gap, so it must never be masked as one (Core's live Mutate handler rejects the
+// interim non-cybr payload with INVALID_ARGUMENT today, and a real bad write
+// later). A precise 400/409/412 mapping lands with the mutate/write surfaces -
+// see the TODO in applyMutation; until then an invalid argument stays a 500.
+// Every other code maps exactly as the read mapper does.
+func mapCoreMutateError(err error, surface string) error {
+	return mapCoreStatus(err, surface, false)
 }
 
 // buildListAnchorsCyQL renders a plausible CyQL read for node anchors with the
