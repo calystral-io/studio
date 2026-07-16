@@ -56,6 +56,73 @@ func startStubCore(t *testing.T) (addr string, principalCh chan string) {
 	return lis.Addr().String(), principalCh
 }
 
+// errQueryServer fails every Query with a fixed error (to simulate Core codes
+// other than UNIMPLEMENTED, e.g. a CyQL parse-reject INVALID_ARGUMENT).
+type errQueryServer struct {
+	querypb.UnimplementedQueryServiceServer
+	err error
+}
+
+func (s *errQueryServer) Query(context.Context, *querypb.QueryRequest) (*querypb.QueryResponse, error) {
+	return nil, s.err
+}
+
+func startStubCoreErr(t *testing.T, err error) string {
+	t.Helper()
+	lis, e := net.Listen("tcp", "127.0.0.1:0")
+	if e != nil {
+		t.Fatalf("listen: %v", e)
+	}
+	srv := grpc.NewServer()
+	querypb.RegisterQueryServiceServer(srv, &errQueryServer{err: err})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	return lis.Addr().String()
+}
+
+// TestClusterTopologyParseRejectFoldsToNoClusterInfo proves the Cluster page
+// degrades gracefully when Core rejects the topology CyQL with INVALID_ARGUMENT
+// (the live cyqlc parse-coverage gap): it must fold to the honest no-cluster-info
+// shape (200-able, empty), the SAME fold UNIMPLEMENTED gets - never a 500 or 502.
+func TestClusterTopologyParseRejectFoldsToNoClusterInfo(t *testing.T) {
+	addr := startStubCoreErr(t, status.Error(codes.InvalidArgument,
+		"query parse error: unexpected trailing token after the query: UpOrder"))
+	c := newTestGRPCClient(t, addr)
+
+	res, err := c.ClusterTopology(context.Background(), ClusterTopologyParams{
+		TenantID:  "demo-tenant",
+		Principal: &auth.Principal{TenantID: "demo-tenant", Roles: []string{"reader"}},
+	})
+	if err != nil {
+		t.Fatalf("parse-reject must fold, not surface: %v", err)
+	}
+	if res.Cluster || res.Summary != nil || len(res.Nodes) != 0 || len(res.Shards) != 0 {
+		t.Fatalf("want no-cluster-info shape, got %+v", res)
+	}
+}
+
+// TestListNodesParseRejectFoldsToUnimplemented proves a data read hitting the
+// same parse-reject folds to 501 (not 500, not 502) and does not leak detail.
+func TestListNodesParseRejectFoldsToUnimplemented(t *testing.T) {
+	addr := startStubCoreErr(t, status.Error(codes.InvalidArgument,
+		"query parse error: unexpected trailing token after the query: UpLimit"))
+	c := newTestGRPCClient(t, addr)
+	_, err := c.ListNodes(context.Background(), ListNodesParams{
+		TenantID: "demo-tenant", PageSize: 25,
+		Principal: &auth.Principal{TenantID: "demo-tenant", Roles: []string{"reader"}},
+	})
+	ae, ok := err.(*apierr.APIError)
+	if !ok || ae.Code != apierr.CodeUnimplemented {
+		t.Fatalf("err = %v, want upstream/unimplemented (501)", err)
+	}
+	if ae.Params["surface"] != clusterNodesSurface {
+		t.Errorf("surface = %v, want %q", ae.Params["surface"], clusterNodesSurface)
+	}
+	if contains(ae.Message, "UpLimit") {
+		t.Errorf("wire message %q leaked parser detail", ae.Message)
+	}
+}
+
 func newTestGRPCClient(t *testing.T, addr string) *GRPCClient {
 	t.Helper()
 	signer, err := auth.NewPrincipalSigner("")
@@ -200,10 +267,16 @@ func TestMapCoreError(t *testing.T) {
 		secret string
 	}{
 		{"unimplemented_is_501", status.Error(codes.Unimplemented, "cvm opcode gap"), apierr.CodeUnimplemented, ""},
+		// A CyQL parse-reject folds to 501 like UNIMPLEMENTED (same "not served
+		// yet" gap), never a 500 or a retryable 502, and must not leak parser detail.
+		{"invalid_argument_folds_to_501_no_leak", status.Error(codes.InvalidArgument, "query parse error: unexpected trailing token after the query: UpOrder"), apierr.CodeUnimplemented, "UpOrder"},
 		{"unavailable_is_502", status.Error(codes.Unavailable, "core down"), apierr.CodeUnavailable, ""},
 		{"deadline_is_502", status.Error(codes.DeadlineExceeded, "slow"), apierr.CodeUnavailable, ""},
 		{"non_status_is_502", errors.New("raw transport failure"), apierr.CodeUnavailable, ""},
-		{"unexpected_code_does_not_leak", status.Error(codes.PermissionDenied, "secret upstream detail"), apierr.CodeInternal, "secret upstream detail"},
+		// Auth denials / not-found / conflicts / Core-internal keep their distinct
+		// 500 (not masked as a transient 502); still no upstream-detail leak.
+		{"permission_denied_stays_500_no_leak", status.Error(codes.PermissionDenied, "secret upstream detail"), apierr.CodeInternal, "secret upstream detail"},
+		{"failed_precondition_stays_500", status.Error(codes.FailedPrecondition, "stale lsn"), apierr.CodeInternal, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -218,6 +291,27 @@ func TestMapCoreError(t *testing.T) {
 				t.Errorf("wire message %q leaked upstream detail %q", ae.Message, tc.secret)
 			}
 		})
+	}
+}
+
+func TestMapCoreMutateError(t *testing.T) {
+	// The write path must NOT inherit the read path's INVALID_ARGUMENT -> 501
+	// parser-gap fold: a rejected write payload / bad request is not a capability
+	// gap. It stays 500 (until the precise per-code mutate mapping lands), and the
+	// upstream detail is never leaked to the wire.
+	var ae *apierr.APIError
+	if !errors.As(mapCoreMutateError(status.Error(codes.InvalidArgument, "bad payload: secret detail"), anchorCreateSurface), &ae) {
+		t.Fatalf("mapCoreMutateError did not return *apierr.APIError")
+	}
+	if ae.Code != apierr.CodeInternal {
+		t.Fatalf("mutate INVALID_ARGUMENT code = %q, want internal (500, NOT the read 501 fold)", ae.Code)
+	}
+	if contains(ae.Message, "secret detail") {
+		t.Errorf("wire message %q leaked upstream detail", ae.Message)
+	}
+	// Non-InvalidArgument codes map like the read path: UNIMPLEMENTED -> 501.
+	if !errors.As(mapCoreMutateError(status.Error(codes.Unimplemented, "gap"), anchorCreateSurface), &ae) || ae.Code != apierr.CodeUnimplemented {
+		t.Fatalf("mutate UNIMPLEMENTED should map to 501, got %v", ae)
 	}
 }
 
