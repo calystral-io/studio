@@ -452,6 +452,14 @@ const (
 	ErrDepthExceeded
 	// ErrTrailingBytes: a value decoded cleanly but bytes remained after it.
 	ErrTrailingBytes
+	// ErrRowNotArray: a query-row payload decoded to a value that is not the
+	// top-level array of columns Core's encode_row always emits.
+	ErrRowNotArray
+	// ErrJSONNotSurfaced: a Json column was decoded but cannot be surfaced as
+	// JSON yet — its bytes are cvm canonical BINARY json, not text, so emitting
+	// them verbatim would be invalid JSON. Surfacing needs a binary-json decoder
+	// (a follow-up); until then a Json column is a typed error, never mis-encoded.
+	ErrJSONNotSurfaced
 )
 
 // ValueError is a typed value-codec failure. Its message is client-safe: it
@@ -480,6 +488,10 @@ func (e *ValueError) Error() string {
 		return "an encoded value nests too deeply"
 	case ErrTrailingBytes:
 		return "an encoded value has trailing bytes"
+	case ErrRowNotArray:
+		return fmt.Sprintf("a query row payload is not an array of columns (tag %d)", e.Tag)
+	case ErrJSONNotSurfaced:
+		return "a json column cannot be surfaced as json yet"
 	default:
 		return "invalid encoded value"
 	}

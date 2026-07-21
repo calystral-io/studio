@@ -212,23 +212,35 @@ func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*Lis
 	if p.AsOf != nil {
 		req.AsOfUnixMs = uint64(p.AsOf.UnixMilli())
 	}
-	// NOTE: p.SystemAsOf (system-time/transaction-time projection) has no field
-	// on querypb.QueryRequest yet, so it cannot be honored over gRPC. The anchors
-	// surface returns 501 below regardless; wiring the system axis upstream needs
-	// a proto field (e.g. system_as_of_unix_ms) plus Core support.
+	// p.SystemAsOf (system-time/transaction-time projection) has no field on
+	// querypb.QueryRequest yet, so it CANNOT be honored over gRPC. Now that we
+	// surface rows, we must refuse it explicitly: silently dropping it would
+	// serve the LATEST view mislabeled as the historical system-time projection
+	// the user scrubbed to. Report the gap instead. (Valid-time AsOf is safe: it
+	// rides AsOfUnixMs and Core rejects a non-zero as_of -> folds to 501.)
 	// TODO(PR-core-decode): thread p.SystemAsOf once the proto carries it.
+	if p.SystemAsOf != nil {
+		return nil, apierr.Unimplemented(anchorsSurface)
+	}
 
 	resp, err := c.query.Query(ctx, req)
 	if err != nil {
 		return nil, mapCoreError(err)
 	}
 
-	// Core returned rows. PR1 has no cybr decoder, so we cannot honestly
-	// surface them yet. Report the gap rather than fabricate anchors.
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload (cybr value bytes) into
-	// AnchorDTO once the shared cybr decoder lands; then paginate here.
-	_ = resp
-	return nil, apierr.Unimplemented(anchorsSurface)
+	// Surface Core's rows. Core's v1 read wire carries only the node id per row
+	// (RETURN n -> Int(node_id)); the richer anchor fields (type/label/
+	// properties/bitemporal coords) populate once Core projects typed columns.
+	// An empty result is an empty item list, not an error.
+	ids, err := decodeNodeIDRows(resp.GetRows(), anchorsSurface)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]AnchorDTO, len(ids))
+	for i, id := range ids {
+		items[i] = AnchorDTO{ID: id}
+	}
+	return &ListAnchorsResult{Items: items, Page: gRPCPage(p.PageSize, len(items)), Source: SourceCore}, nil
 }
 
 // GetAnchorHistory would return one anchor's full bitemporal version set from
@@ -425,9 +437,12 @@ func (c *GRPCClient) ListLedgers(ctx context.Context, p ListLedgersParams) (*Lis
 		return nil, mapCoreErrorForSurface(err, ledgersSurface)
 	}
 
-	// Core returned rows but PR2 has no cybr decoder, so we cannot honestly
-	// surface them yet. Report the gap rather than fabricate ledgers.
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into LedgerSummary.
+	// The row decoder is ready (see decodeNodeIDRows), but the ledger CATALOG DTO
+	// (LedgerSummary) is keyed by NAME, and Core's v1 read wire carries only the
+	// node id per row (RETURN l -> Int(node_id)) — a numeric id is not a ledger
+	// name, and fabricating one would lie. So this surface stays 501 until Core
+	// projects a typed `name` column; then map it here like the other surfaces.
+	// (Contrast ledger ENTRIES, whose DTO has an id field the node id fills.)
 	_ = resp
 	return nil, apierr.Unimplemented(ledgersSurface)
 }
@@ -464,9 +479,19 @@ func (c *GRPCClient) ListLedgerEntries(ctx context.Context, p ListLedgerEntriesP
 		return nil, mapCoreErrorForSurface(err, ledgerEntriesSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into LedgerEntry.
-	_ = resp
-	return nil, apierr.Unimplemented(ledgerEntriesSurface)
+	// Surface Core's rows. Core's v1 read wire carries only the entry node's id
+	// per row (RETURN e -> Int(node_id)); the richer entry fields (lsn/kind/
+	// summary/actor/bitemporal coords/payload) populate once Core projects typed
+	// columns. Ledger is known from the request. Empty -> empty item list.
+	ids, err := decodeNodeIDRows(resp.GetRows(), ledgerEntriesSurface)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]LedgerEntry, len(ids))
+	for i, id := range ids {
+		items[i] = LedgerEntry{ID: id, Ledger: p.Name}
+	}
+	return &ListLedgerEntriesResult{Items: items, Page: gRPCPage(p.PageSize, len(items)), Source: SourceCore}, nil
 }
 
 // ClusterSummary mints the principal JWT, issues the cluster-status read, and
@@ -519,9 +544,18 @@ func (c *GRPCClient) ListNodes(ctx context.Context, p ListNodesParams) (*ListNod
 		return nil, mapCoreErrorForSurface(err, clusterNodesSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into NodeDTO.
-	_ = resp
-	return nil, apierr.Unimplemented(clusterNodesSurface)
+	// Surface Core's rows. Core's v1 read wire carries only the node id per row
+	// (RETURN n -> Int(node_id)); the operational fields (address/region/status/
+	// raft role/capacity/...) populate once Core projects typed columns.
+	ids, err := decodeNodeIDRows(resp.GetRows(), clusterNodesSurface)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]NodeDTO, len(ids))
+	for i, id := range ids {
+		items[i] = NodeDTO{ID: id}
+	}
+	return &ListNodesResult{Items: items, Page: gRPCPage(p.PageSize, len(items)), Source: SourceCore}, nil
 }
 
 // ListShards mints the principal JWT, issues the list-shards read, and maps
@@ -548,9 +582,18 @@ func (c *GRPCClient) ListShards(ctx context.Context, p ListShardsParams) (*ListS
 		return nil, mapCoreErrorForSurface(err, clusterShardsSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into ShardDTO.
-	_ = resp
-	return nil, apierr.Unimplemented(clusterShardsSurface)
+	// Surface Core's rows. Core's v1 read wire carries only the shard node id per
+	// row (RETURN s -> Int(node_id)); the shard fields (key range/leader/replicas/
+	// raft term/lag/...) populate once Core projects typed columns.
+	ids, err := decodeNodeIDRows(resp.GetRows(), clusterShardsSurface)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ShardDTO, len(ids))
+	for i, id := range ids {
+		items[i] = ShardDTO{ID: id}
+	}
+	return &ListShardsResult{Items: items, Page: gRPCPage(p.PageSize, len(items)), Source: SourceCore}, nil
 }
 
 // RuntimeSummary mints the principal JWT, issues the runtime-state read, and maps
