@@ -1,10 +1,9 @@
 // gRPC CoreClient: dials Core's QueryService.Query, mints and forwards the
-// x-calystral-principal EdDSA JWT, and issues a "list nodes" CyQL read (Core
-// models nodes as anchors internally).
-// Core returns UNIMPLEMENTED for every valid query today (a cvm opcode gap), so
-// PR1 maps that honest gap to the contract 501 /errors/upstream/unimplemented
-// with surface="nodes". We never fabricate rows - mirroring how Core itself
-// reports the gap rather than faking a result.
+// x-calystral-principal EdDSA JWT, and issues CyQL reads (Core models nodes as
+// anchors internally). A surface Core has not yet implemented is mapped to the
+// contract 501 /errors/upstream/unimplemented with its surface tag; we never
+// fabricate rows - mirroring how Core itself reports the gap rather than faking
+// a result.
 package coreclient
 
 import (
@@ -219,7 +218,7 @@ func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*Lis
 	// serve the LATEST view mislabeled as the historical system-time projection
 	// the user scrubbed to. Report the gap instead. (Valid-time AsOf is safe: it
 	// rides AsOfUnixMs and Core rejects a non-zero as_of -> folds to 501.)
-	// TODO(PR-core-decode): thread p.SystemAsOf once the proto carries it.
+	// TODO(system-time): thread p.SystemAsOf once the proto carries it.
 	if p.SystemAsOf != nil {
 		return nil, apierr.Unimplemented(anchorsSurface)
 	}
@@ -262,7 +261,7 @@ func (c *GRPCClient) GetAnchorHistory(ctx context.Context, p GetAnchorHistoryPar
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, anchorHistorySurface)
 	}
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload (cybr value bytes) into
+	// TODO(decode): decode resp.Rows[*].Payload (cybr value bytes) into
 	// every AnchorDTO version once the shared cybr decoder lands.
 	_ = resp
 	return nil, apierr.Unimplemented(anchorHistorySurface)
@@ -286,7 +285,7 @@ func (c *GRPCClient) GetAnchorDiff(ctx context.Context, p GetAnchorDiffParams) (
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, anchorDiffSurface)
 	}
-	// TODO(PR-core-decode): decode both resolved versions + compute field deltas
+	// TODO(decode): decode both resolved versions + compute field deltas
 	// once the shared cybr decoder lands.
 	_ = resp
 	return nil, apierr.Unimplemented(anchorDiffSurface)
@@ -313,12 +312,12 @@ func (c *GRPCClient) GetNeighborhood(ctx context.Context, p NeighborhoodParams) 
 	// NOTE: like ListAnchors, p.SystemAsOf (system-time projection) has no field on
 	// querypb.QueryRequest, so it cannot be honored over gRPC yet; the surface
 	// returns 501 below regardless.
-	// TODO(PR-core-decode): thread p.SystemAsOf once the proto carries it.
+	// TODO(system-time): thread p.SystemAsOf once the proto carries it.
 	resp, err := c.query.Query(ctx, req)
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, nodeNeighborhoodSurface)
 	}
-	// TODO(PR-core-decode): decode the seed + neighbor + edge rows once the
+	// TODO(decode): decode the seed + neighbor + edge rows once the
 	// shared cybr decoder lands.
 	_ = resp
 	return nil, apierr.Unimplemented(nodeNeighborhoodSurface)
@@ -393,7 +392,7 @@ func (c *GRPCClient) applyMutation(
 		// NOT the read path's 501 parser-gap fold. When Core's Mutate handler lands,
 		// add codes.FailedPrecondition -> 412 and codes.InvalidArgument -> 400/409
 		// (with expected/actual from the error detail) so the two backends agree.
-		// TODO(PR-core-mutate): map FailedPrecondition -> PreconditionFailed.
+		// TODO(mutate): map FailedPrecondition -> PreconditionFailed.
 		return nil, mapCoreMutateError(err, surface)
 	}
 	return resp, nil
@@ -408,7 +407,7 @@ func (c *GRPCClient) applyMutation(
 // (schema id resolution), so it reports the honest gap rather than fabricate the
 // committed anchor.
 func mutationResultTODO(resp *mutatepb.MutateResponse, surface string) (*AnchorMutationResult, error) {
-	// TODO(PR-core-mutate): build a create's AnchorDTO from the request + resp
+	// TODO(mutate): build a create's AnchorDTO from the request + resp
 	// (Created/CommitLsn); read back the superseded prior for correct/close.
 	_ = resp
 	return nil, apierr.Unimplemented(surface)
@@ -541,7 +540,7 @@ func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams)
 
 	// Surface the real rollup. `RETURN c.summary` projects the cluster node's
 	// summary field (JSON text); decodeClusterSummary parses it. Zero rows (no
-	// :Cluster node) yields Present=false — an honest empty rollup, not an error.
+	// :Cluster node) yields Present=false - an honest empty rollup, not an error.
 	summary, found, err := decodeClusterSummary(resp.GetRows())
 	if err != nil {
 		return nil, err
@@ -646,7 +645,7 @@ func (c *GRPCClient) RuntimeSummary(ctx context.Context, p RuntimeSummaryParams)
 		return nil, mapCoreErrorForSurface(err, runtimeSummarySurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into RuntimeSummary.
+	// TODO(decode): decode resp.Rows[*].Payload into RuntimeSummary.
 	_ = resp
 	return nil, apierr.Unimplemented(runtimeSummarySurface)
 }
@@ -675,7 +674,7 @@ func (c *GRPCClient) ListOpcodes(ctx context.Context, p ListOpcodesParams) (*Lis
 		return nil, mapCoreErrorForSurface(err, opcodesSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into OpcodeDTO.
+	// TODO(decode): decode resp.Rows[*].Payload into OpcodeDTO.
 	_ = resp
 	return nil, apierr.Unimplemented(opcodesSurface)
 }
@@ -704,7 +703,7 @@ func (c *GRPCClient) ListPlanCacheEntries(ctx context.Context, p ListPlanCacheEn
 		return nil, mapCoreErrorForSurface(err, planCacheSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into PlanCacheEntryDTO.
+	// TODO(decode): decode resp.Rows[*].Payload into PlanCacheEntryDTO.
 	_ = resp
 	return nil, apierr.Unimplemented(planCacheSurface)
 }
@@ -730,7 +729,7 @@ func (c *GRPCClient) MessagingSummary(ctx context.Context, p MessagingSummaryPar
 		return nil, mapCoreErrorForSurface(err, messagingSummarySurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into MessagingSummary.
+	// TODO(decode): decode resp.Rows[*].Payload into MessagingSummary.
 	_ = resp
 	return nil, apierr.Unimplemented(messagingSummarySurface)
 }
@@ -759,7 +758,7 @@ func (c *GRPCClient) ListChannels(ctx context.Context, p ListChannelsParams) (*L
 		return nil, mapCoreErrorForSurface(err, channelsSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into ChannelDTO.
+	// TODO(decode): decode resp.Rows[*].Payload into ChannelDTO.
 	_ = resp
 	return nil, apierr.Unimplemented(channelsSurface)
 }
@@ -788,7 +787,7 @@ func (c *GRPCClient) ListSubscriptions(ctx context.Context, p ListSubscriptionsP
 		return nil, mapCoreErrorForSurface(err, subscriptionsSurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into SubscriptionDTO.
+	// TODO(decode): decode resp.Rows[*].Payload into SubscriptionDTO.
 	_ = resp
 	return nil, apierr.Unimplemented(subscriptionsSurface)
 }
@@ -803,13 +802,12 @@ func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (cont
 	return metadata.AppendToOutgoingContext(ctx, principalMetadataKey, token), nil
 }
 
-// buildListLedgersCyQL renders a plausible CyQL read for the ledger catalog with
-// the requested `q` filter. Core returns UNIMPLEMENTED regardless of the text.
+// buildListLedgersCyQL renders the ledger-catalog read: a bare name projection.
 func buildListLedgersCyQL() string {
 	// Project the NAME (not the bare node, whose only wire value is a numeric id):
-	// LedgerSummary is keyed by name. Core executes this projection today (Ch1),
-	// but cannot yet ORDER BY / filter a PROJECTED field (that path traps on a
-	// LOAD_PARAM slot), so no ORDER BY / WHERE / LIMIT here — the catalog is sorted,
+	// LedgerSummary is keyed by name. Core executes this projection today, but
+	// cannot yet ORDER BY / filter a PROJECTED field (that path traps on a
+	// LOAD_PARAM slot), so no ORDER BY / WHERE / LIMIT here - the catalog is sorted,
 	// q-filtered, and paginated client-side over the full name list (a catalog is
 	// small). Core-side ordering/limit lands when the projection+order path does.
 	return "MATCH (l:Ledger) RETURN l.name"
