@@ -6,9 +6,9 @@
 // 	protoc        v5.29.3
 // source: query.proto
 
-// Read-path surface: CyQL query execution against the embedded engine.
-// Concrete handlers land in a later lane; this lane defines the wire shape and
-// a stubbed service that returns UNIMPLEMENTED.
+// Read-path surface: CyQL query execution against the embedded engine. Compiles
+// the CyQL to cybr, binds the request parameters, runs the query over the store,
+// and returns the result rows.
 
 package querypb
 
@@ -33,8 +33,15 @@ type QueryRequest struct {
 	Cyql string `protobuf:"bytes,1,opt,name=cyql,proto3" json:"cyql,omitempty"`
 	// Tenant the query is scoped to. Set by the gateway-verified principal.
 	Tenant string `protobuf:"bytes,2,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	// Optional point-in-time read; unix milliseconds. 0 means "latest".
-	AsOfUnixMs    uint64 `protobuf:"varint,3,opt,name=as_of_unix_ms,json=asOfUnixMs,proto3" json:"as_of_unix_ms,omitempty"`
+	// Optional point-in-time read; unix milliseconds. 0 means "latest". Non-zero
+	// (historical) reads are not honored yet and are rejected INVALID_ARGUMENT.
+	AsOfUnixMs uint64 `protobuf:"varint,3,opt,name=as_of_unix_ms,json=asOfUnixMs,proto3" json:"as_of_unix_ms,omitempty"`
+	// The query's bound parameter values, POSITIONAL: the compiler lowers each
+	// read predicate's compared value to a LOAD_PARAM slot, in first-appearance
+	// order, and these are bound into those slots in the same order. Each entry is
+	// one cybr value encoded with the shared value codec (the same encoding
+	// proc-invoke arguments use). A query with no predicate parameters sends none.
+	Params        [][]byte `protobuf:"bytes,4,rep,name=params,proto3" json:"params,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -88,6 +95,13 @@ func (x *QueryRequest) GetAsOfUnixMs() uint64 {
 		return x.AsOfUnixMs
 	}
 	return 0
+}
+
+func (x *QueryRequest) GetParams() [][]byte {
+	if x != nil {
+		return x.Params
+	}
+	return nil
 }
 
 type QueryResponse struct {
@@ -184,12 +198,13 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x17calystral.core.v1.query\"]\n" +
+	"\vquery.proto\x12\x17calystral.core.v1.query\"u\n" +
 	"\fQueryRequest\x12\x12\n" +
 	"\x04cyql\x18\x01 \x01(\tR\x04cyql\x12\x16\n" +
 	"\x06tenant\x18\x02 \x01(\tR\x06tenant\x12!\n" +
 	"\ras_of_unix_ms\x18\x03 \x01(\x04R\n" +
-	"asOfUnixMs\"F\n" +
+	"asOfUnixMs\x12\x16\n" +
+	"\x06params\x18\x04 \x03(\fR\x06params\"F\n" +
 	"\rQueryResponse\x125\n" +
 	"\x04rows\x18\x01 \x03(\v2!.calystral.core.v1.query.QueryRowR\x04rows\"$\n" +
 	"\bQueryRow\x12\x18\n" +

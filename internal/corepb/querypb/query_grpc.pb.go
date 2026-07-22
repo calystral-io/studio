@@ -6,9 +6,9 @@
 // - protoc             v5.29.3
 // source: query.proto
 
-// Read-path surface: CyQL query execution against the embedded engine.
-// Concrete handlers land in a later lane; this lane defines the wire shape and
-// a stubbed service that returns UNIMPLEMENTED.
+// Read-path surface: CyQL query execution against the embedded engine. Compiles
+// the CyQL to cybr, binds the request parameters, runs the query over the store,
+// and returns the result rows.
 
 package querypb
 
@@ -33,8 +33,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // Executes read queries against the engine. Tenant scoping is applied from the
-// upstream-verified principal (resolved in a later lane), not carried on the
-// wire.
+// upstream-verified principal, not carried on the wire.
 type QueryServiceClient interface {
 	// Run a single CyQL query and return its result rows.
 	Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error)
@@ -63,8 +62,7 @@ func (c *queryServiceClient) Query(ctx context.Context, in *QueryRequest, opts .
 // for forward compatibility.
 //
 // Executes read queries against the engine. Tenant scoping is applied from the
-// upstream-verified principal (resolved in a later lane), not carried on the
-// wire.
+// upstream-verified principal, not carried on the wire.
 type QueryServiceServer interface {
 	// Run a single CyQL query and return its result rows.
 	Query(context.Context, *QueryRequest) (*QueryResponse, error)
