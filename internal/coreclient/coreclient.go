@@ -257,6 +257,10 @@ type ClusterSummaryParams struct {
 // ClusterSummaryResult is the cluster rollup plus the source tag.
 type ClusterSummaryResult struct {
 	Summary ClusterSummary
+	// Present is false when Core has no :Cluster node (an executed query with
+	// zero rows). The handler renders that as the honest no-cluster-info shape
+	// (summary:null) rather than a zero-valued rollup. Always true for fixtures.
+	Present bool
 	Source  string
 }
 
