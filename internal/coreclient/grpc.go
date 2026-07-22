@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -417,34 +418,56 @@ func mutationResultTODO(resp *mutatepb.MutateResponse, surface string) (*AnchorM
 // maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; the
 // row-decode path is structured but explicitly TODO (no cybr decoder).
 func (c *GRPCClient) ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error) {
-	if _, err := decodeCursor(p.Cursor); err != nil {
+	offset, err := decodeCursor(p.Cursor)
+	if err != nil {
 		return nil, err
 	}
 	if p.Principal == nil {
 		return nil, apierr.Internal("grpc core client: missing principal")
 	}
 
-	ctx, err := c.withPrincipal(ctx, p.Principal)
+	ctx, err = c.withPrincipal(ctx, p.Principal)
 	if err != nil {
 		return nil, err
 	}
 
 	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
-		Cyql:   buildListLedgersCyQL(p),
+		Cyql:   buildListLedgersCyQL(),
 		Tenant: p.Principal.TenantID,
 	})
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, ledgersSurface)
 	}
+	names, err := decodeLedgerNames(resp.GetRows())
+	if err != nil {
+		return nil, err
+	}
 
-	// The row decoder is ready (see decodeNodeIDRows), but the ledger CATALOG DTO
-	// (LedgerSummary) is keyed by NAME, and Core's v1 read wire carries only the
-	// node id per row (RETURN l -> Int(node_id)) — a numeric id is not a ledger
-	// name, and fabricating one would lie. So this surface stays 501 until Core
-	// projects a typed `name` column; then map it here like the other surfaces.
-	// (Contrast ledger ENTRIES, whose DTO has an id field the node id fills.)
-	_ = resp
-	return nil, apierr.Unimplemented(ledgersSurface)
+	// Core projects the name but cannot yet sort/filter/limit a projected field,
+	// so do it here over the full catalog (which is small). Only the name is on
+	// the wire today; the other LedgerSummary fields (kind/description/last_lsn/...)
+	// populate once Core projects typed columns.
+	q := strings.ToLower(strings.TrimSpace(p.Q))
+	names = slices.DeleteFunc(names, func(n string) bool {
+		return q != "" && !strings.Contains(strings.ToLower(n), q)
+	})
+	slices.Sort(names)
+
+	total := len(names)
+	page := Page{PageSize: p.PageSize, TotalEstimate: total}
+	items := []LedgerSummary{}
+	if offset < total {
+		end := min(offset+p.PageSize, total)
+		for _, n := range names[offset:end] {
+			items = append(items, LedgerSummary{Name: n})
+		}
+	}
+	if offset+len(items) < total {
+		page.HasMore = true
+		cur := encodeCursor(offset + len(items))
+		page.NextCursor = &cur
+	}
+	return &ListLedgersResult{Items: items, Page: page, Source: SourceCore}, nil
 }
 
 // ListLedgerEntries mints the principal JWT, issues the list-entries CyQL read,
@@ -782,15 +805,14 @@ func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (cont
 
 // buildListLedgersCyQL renders a plausible CyQL read for the ledger catalog with
 // the requested `q` filter. Core returns UNIMPLEMENTED regardless of the text.
-func buildListLedgersCyQL(p ListLedgersParams) string {
-	var b strings.Builder
-	b.WriteString("MATCH (l:Ledger)")
-	if q := strings.TrimSpace(p.Q); q != "" {
-		fmt.Fprintf(&b, " WHERE l CONTAINS %q", q)
-	}
-	b.WriteString(" RETURN l ORDER BY l.name")
-	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
-	return b.String()
+func buildListLedgersCyQL() string {
+	// Project the NAME (not the bare node, whose only wire value is a numeric id):
+	// LedgerSummary is keyed by name. Core executes this projection today (Ch1),
+	// but cannot yet ORDER BY / filter a PROJECTED field (that path traps on a
+	// LOAD_PARAM slot), so no ORDER BY / WHERE / LIMIT here — the catalog is sorted,
+	// q-filtered, and paginated client-side over the full name list (a catalog is
+	// small). Core-side ordering/limit lands when the projection+order path does.
+	return "MATCH (l:Ledger) RETURN l.name"
 }
 
 // buildListLedgerEntriesCyQL renders a plausible CyQL read for one ledger's

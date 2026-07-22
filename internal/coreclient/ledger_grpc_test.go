@@ -99,10 +99,18 @@ func TestGRPCLedgerEntriesRejectInvalidLSNRange(t *testing.T) {
 }
 
 func TestBuildLedgerCyQL(t *testing.T) {
-	got := buildListLedgersCyQL(ListLedgersParams{PageSize: 10, Q: "audit"})
-	for _, want := range []string{"MATCH", "Ledger", "audit", "ORDER BY l.name", "LIMIT 10"} {
+	// The catalog projects the NAME and sorts/filters/limits client-side (Core
+	// cannot yet ORDER BY / filter a projected field), so the CyQL is a bare
+	// projection with no ORDER BY / WHERE / LIMIT.
+	got := buildListLedgersCyQL()
+	for _, want := range []string{"MATCH", "Ledger", "RETURN l.name"} {
 		if !contains(got, want) {
 			t.Errorf("ledgers cyql %q missing %q", got, want)
+		}
+	}
+	for _, unwanted := range []string{"ORDER BY", "LIMIT", "WHERE"} {
+		if contains(got, unwanted) {
+			t.Errorf("ledgers cyql %q must not contain %q (handled client-side)", got, unwanted)
 		}
 	}
 
