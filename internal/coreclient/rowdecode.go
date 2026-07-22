@@ -1,6 +1,7 @@
 package coreclient
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -45,6 +46,40 @@ func decodeNodeIDRows(rows []*querypb.QueryRow, surface string) ([]string, error
 		ids = append(ids, strconv.FormatInt(id, 10))
 	}
 	return ids, nil
+}
+
+// decodeClusterSummary maps Core's cluster-summary projection into the rollup
+// DTO. The query `MATCH (c:Cluster) RETURN c.summary` projects one column — the
+// cluster node's `summary` field, which carries the rollup as JSON text — so we
+// parse the first row's summary column into a ClusterSummary. Zero rows means no
+// :Cluster node is present, an honest empty rollup (found=false), not an error.
+//
+// NOTE (pre-schema): Core cannot yet discriminate node types — every single-type
+// query resolves to type_id 0 — so this projection returns every type_id-0 node.
+// We take the first row; a store that holds only the cluster node under that id
+// yields a clean rollup. Type-accurate selection lands with Core's schema
+// snapshot; a mistyped/garbled summary column is an internal error, not a 4xx.
+func decodeClusterSummary(rows []*querypb.QueryRow) (ClusterSummary, bool, error) {
+	if len(rows) == 0 {
+		return ClusterSummary{}, false, nil
+	}
+	cols, err := cybrwire.DecodeRow(rows[0].GetPayload())
+	if err != nil {
+		return ClusterSummary{}, false, apierr.Internal(fmt.Sprintf("decode cluster summary row: %v", err))
+	}
+	if len(cols) == 0 {
+		return ClusterSummary{}, false, apierr.Internal("cluster summary row has no columns")
+	}
+	text, ok := cols[0].AsString()
+	if !ok {
+		return ClusterSummary{}, false, apierr.Internal(
+			fmt.Sprintf("cluster summary column is not a string (kind %d)", cols[0].Kind()))
+	}
+	var cs ClusterSummary
+	if err := json.Unmarshal([]byte(text), &cs); err != nil {
+		return ClusterSummary{}, false, apierr.Internal("cluster summary payload is not valid json")
+	}
+	return cs, true, nil
 }
 
 // gRPCPage builds the pagination envelope for a Core-sourced page. Core paginates
