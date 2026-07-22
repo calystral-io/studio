@@ -306,7 +306,8 @@ func seedLedgers() ([]LedgerSummary, map[string][]LedgerEntry) {
 		}
 		if n := len(es); n > 0 {
 			s.LastLSN = es[n-1].LSN
-			s.LastRecordedAt = es[n-1].RecordedAt
+			rt := es[n-1].RecordedAt
+			s.LastRecordedAt = &rt
 		}
 		ledgers = append(ledgers, s)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/calystral-io/studio/internal/apierr"
 	"github.com/calystral-io/studio/internal/corepb/querypb"
 	"github.com/calystral-io/studio/internal/cybrwire"
 )
@@ -86,6 +87,19 @@ func TestListLedgersQFilter(t *testing.T) {
 	}
 	if len(res.Items) != 2 || res.Items[0].Name != "audit-log" || res.Items[1].Name != "audit-trail" {
 		t.Fatalf("q=audit items = %+v, want the two audit ledgers", res.Items)
+	}
+}
+
+// A row whose column 0 is an Int (a node id), not a string name, violates the
+// catalog projection contract -> internal error (Core's fault), never a 4xx.
+func TestListLedgersNonStringColumnIsInternal(t *testing.T) {
+	addr := startStubCoreRows(t, []*querypb.QueryRow{nodeIDRow(t, 7)})
+	c := newTestGRPCClient(t, addr)
+
+	_, err := c.ListLedgers(context.Background(), ListLedgersParams{TenantID: "demo-tenant", PageSize: 25, Principal: reader()})
+	ae, ok := err.(*apierr.APIError)
+	if !ok || ae.Code != apierr.CodeInternal {
+		t.Fatalf("err = %v, want internal", err)
 	}
 }
 

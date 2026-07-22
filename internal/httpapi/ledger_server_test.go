@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -11,6 +12,40 @@ import (
 	"github.com/calystral-io/studio/internal/coreclient"
 	"github.com/calystral-io/studio/internal/corepb/querypb"
 )
+
+// A live Core catalog projection (name rows) renders through GET /api/v1/ledgers
+// as 200, source:core, names sorted — and the fields the wire cannot supply are
+// ABSENT from the JSON (omitempty), never present-and-zero (no year-1 timestamp).
+func TestLedgersGRPCRowsHappyPath(t *testing.T) {
+	s := newGRPCServerWithQuery(t, summaryRowQuery{rows: []*querypb.QueryRow{
+		summaryRow(t, "gamma-ledger"), summaryRow(t, "alpha-ledger"), summaryRow(t, "beta-ledger"),
+	}})
+	rec := do(t, s, http.MethodGet, "/api/v1/ledgers", "mock-reader-token")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body ledgersBody
+	decode(t, rec, &body)
+	if body.Source != "core" {
+		t.Errorf("source = %q, want core", body.Source)
+	}
+	got := []string{}
+	for _, l := range body.Items {
+		got = append(got, l.Name)
+	}
+	if len(got) != 3 || got[0] != "alpha-ledger" || got[1] != "beta-ledger" || got[2] != "gamma-ledger" {
+		t.Fatalf("names = %v, want sorted [alpha beta gamma]", got)
+	}
+	if body.Items[0].LastRecordedAt != nil {
+		t.Errorf("last_recorded_at must be null/absent when unknown, got %v", body.Items[0].LastRecordedAt)
+	}
+	// Unavailable fields are elided entirely (omitempty), not present-and-zero.
+	for _, absent := range []string{"last_recorded_at", "\"kind\"", "last_lsn"} {
+		if strings.Contains(rec.Body.String(), absent) {
+			t.Errorf("catalog JSON must omit unavailable field %s: %s", absent, rec.Body.String())
+		}
+	}
+}
 
 type ledgersBody struct {
 	Items  []coreclient.LedgerSummary `json:"items"`

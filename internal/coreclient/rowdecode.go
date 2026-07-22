@@ -61,11 +61,15 @@ func decodeLedgerNames(rows []*querypb.QueryRow) ([]string, error) {
 		if len(cols) == 0 {
 			return nil, apierr.Internal(fmt.Sprintf("ledger row %d has no columns", i))
 		}
-		name, ok := cols[0].AsString()
-		if !ok {
+		// Require KindStr specifically: AsString also accepts KindDec, but a ledger
+		// name is a string, so a decimal (or anything else) in column 0 is a
+		// contract violation to catch, not coerce (symmetric with decodeNodeIDRows
+		// requiring KindInt).
+		if cols[0].Kind() != cybrwire.KindStr {
 			return nil, apierr.Internal(
 				fmt.Sprintf("ledger row %d column 0 is not a string name (kind %d)", i, cols[0].Kind()))
 		}
+		name, _ := cols[0].AsString()
 		names = append(names, name)
 	}
 	return names, nil

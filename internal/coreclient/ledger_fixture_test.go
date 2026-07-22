@@ -62,7 +62,7 @@ func TestFixtureLedgerSeedChainAndSummary(t *testing.T) {
 		if l.LastLSN != last.LSN {
 			t.Errorf("ledger %q last_lsn = %d, want %d", l.Name, l.LastLSN, last.LSN)
 		}
-		if !l.LastRecordedAt.Equal(last.RecordedAt) {
+		if l.LastRecordedAt == nil || !l.LastRecordedAt.Equal(last.RecordedAt) {
 			t.Errorf("ledger %q last_recorded_at = %v, want %v", l.Name, l.LastRecordedAt, last.RecordedAt)
 		}
 	}
