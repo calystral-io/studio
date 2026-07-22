@@ -82,13 +82,18 @@ type ListAnchorsResult struct {
 }
 
 // LedgerSummary is a catalog entry describing one ledger (contract section 9.1).
+// Only Name is always known; the rest are omitempty so a source that cannot yet
+// supply them (the grpc catalog projects the name only) reports them ABSENT
+// rather than present-and-zero. LastRecordedAt is a pointer because omitempty
+// does not elide a zero time.Time: a nil pointer marshals to null (unknown), not
+// a year-1 timestamp that reads as real data.
 type LedgerSummary struct {
-	Name               string    `json:"name"`
-	Kind               string    `json:"kind"`
-	Description        string    `json:"description"`
-	EntryCountEstimate int       `json:"entry_count_estimate"`
-	LastLSN            int64     `json:"last_lsn"`
-	LastRecordedAt     time.Time `json:"last_recorded_at"`
+	Name               string     `json:"name"`
+	Kind               string     `json:"kind,omitempty"`
+	Description        string     `json:"description,omitempty"`
+	EntryCountEstimate int        `json:"entry_count_estimate,omitempty"`
+	LastLSN            int64      `json:"last_lsn,omitempty"`
+	LastRecordedAt     *time.Time `json:"last_recorded_at,omitempty"`
 }
 
 // LedgerEntry is one append-only, bitemporal ledger entry (contract section
