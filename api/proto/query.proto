@@ -1,16 +1,15 @@
 // Vendored from canonical source calystral-io/core/core-api/proto (do not edit by hand; sync via `make proto-sync`).
 syntax = "proto3";
 
-// Read-path surface: CyQL query execution against the embedded engine.
-// Concrete handlers land in a later lane; this lane defines the wire shape and
-// a stubbed service that returns UNIMPLEMENTED.
+// Read-path surface: CyQL query execution against the embedded engine. Compiles
+// the CyQL to cybr, binds the request parameters, runs the query over the store,
+// and returns the result rows.
 package calystral.core.v1.query;
 
 option go_package = "github.com/calystral-io/studio/internal/corepb/querypb;querypb";
 
 // Executes read queries against the engine. Tenant scoping is applied from the
-// upstream-verified principal (resolved in a later lane), not carried on the
-// wire.
+// upstream-verified principal, not carried on the wire.
 service QueryService {
   // Run a single CyQL query and return its result rows.
   rpc Query(QueryRequest) returns (QueryResponse);
@@ -21,8 +20,15 @@ message QueryRequest {
   string cyql = 1;
   // Tenant the query is scoped to. Set by the gateway-verified principal.
   string tenant = 2;
-  // Optional point-in-time read; unix milliseconds. 0 means "latest".
+  // Optional point-in-time read; unix milliseconds. 0 means "latest". Non-zero
+  // (historical) reads are not honored yet and are rejected INVALID_ARGUMENT.
   uint64 as_of_unix_ms = 3;
+  // The query's bound parameter values, POSITIONAL: the compiler lowers each
+  // read predicate's compared value to a LOAD_PARAM slot, in first-appearance
+  // order, and these are bound into those slots in the same order. Each entry is
+  // one cybr value encoded with the shared value codec (the same encoding
+  // proc-invoke arguments use). A query with no predicate parameters sends none.
+  repeated bytes params = 4;
 }
 
 message QueryResponse {
