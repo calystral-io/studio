@@ -515,9 +515,14 @@ func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams)
 		return nil, mapCoreErrorForSurface(err, clusterSummarySurface)
 	}
 
-	// TODO(PR-core-decode): decode resp.Rows[*].Payload into ClusterSummary.
-	_ = resp
-	return nil, apierr.Unimplemented(clusterSummarySurface)
+	// Surface the real rollup. `RETURN c.summary` projects the cluster node's
+	// summary field (JSON text); decodeClusterSummary parses it. Zero rows (no
+	// :Cluster node) yields an empty rollup, not an error.
+	summary, _, err := decodeClusterSummary(resp.GetRows())
+	if err != nil {
+		return nil, err
+	}
+	return &ClusterSummaryResult{Summary: summary, Source: SourceCore}, nil
 }
 
 // ListNodes mints the principal JWT, issues the list-nodes read, and maps Core's
