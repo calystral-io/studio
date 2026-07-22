@@ -540,7 +540,7 @@ func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams)
 
 	// Surface the real rollup. `RETURN c.summary` projects the cluster node's
 	// summary field (JSON text); decodeClusterSummary parses it. Zero rows (no
-	// :Cluster node) yields Present=false — an honest empty rollup, not an error.
+	// :Cluster node) yields Present=false - an honest empty rollup, not an error.
 	summary, found, err := decodeClusterSummary(resp.GetRows())
 	if err != nil {
 		return nil, err
@@ -802,13 +802,12 @@ func (c *GRPCClient) withPrincipal(ctx context.Context, p *auth.Principal) (cont
 	return metadata.AppendToOutgoingContext(ctx, principalMetadataKey, token), nil
 }
 
-// buildListLedgersCyQL renders a plausible CyQL read for the ledger catalog with
-// the requested `q` filter. Core returns UNIMPLEMENTED regardless of the text.
+// buildListLedgersCyQL renders the ledger-catalog read: a bare name projection.
 func buildListLedgersCyQL() string {
 	// Project the NAME (not the bare node, whose only wire value is a numeric id):
-	// LedgerSummary is keyed by name. Core executes this projection today (Ch1),
-	// but cannot yet ORDER BY / filter a PROJECTED field (that path traps on a
-	// LOAD_PARAM slot), so no ORDER BY / WHERE / LIMIT here — the catalog is sorted,
+	// LedgerSummary is keyed by name. Core executes this projection today, but
+	// cannot yet ORDER BY / filter a PROJECTED field (that path traps on a
+	// LOAD_PARAM slot), so no ORDER BY / WHERE / LIMIT here - the catalog is sorted,
 	// q-filtered, and paginated client-side over the full name list (a catalog is
 	// small). Core-side ordering/limit lands when the projection+order path does.
 	return "MATCH (l:Ledger) RETURN l.name"
