@@ -120,7 +120,7 @@ func TestFixtureChannelsFilters(t *testing.T) {
 		t.Errorf("closed channels = %d, want 5", closed.Page.TotalEstimate)
 	}
 
-	// q matches carried type / name (Telemetry channels: i%5==2 → 10).
+	// q matches carried type / name (Telemetry channels: i%5==2 -> 10).
 	tele, _ := f.ListChannels(ctx(), ListChannelsParams{PageSize: 200, Q: "telemetry"})
 	if tele.Page.TotalEstimate != 10 {
 		t.Errorf("q=telemetry = %d, want 10", tele.Page.TotalEstimate)
@@ -167,13 +167,13 @@ func TestFixtureSubscriptionsFilters(t *testing.T) {
 		}
 	}
 
-	// ordering filter (strictly_ordered: n%4==0 → 24).
+	// ordering filter (strictly_ordered: n%4==0 -> 24).
 	ord, _ := f.ListSubscriptions(ctx(), ListSubscriptionsParams{PageSize: 200, Ordering: OrderingStrictlyOrdered})
 	if ord.Page.TotalEstimate != 24 {
 		t.Errorf("strictly_ordered = %d, want 24", ord.Page.TotalEstimate)
 	}
 
-	// overflow filter (pause: n%3==2 → 32) — and paused subs never drop.
+	// overflow filter (pause: n%3==2 -> 32) - and paused subs never drop.
 	pause, _ := f.ListSubscriptions(ctx(), ListSubscriptionsParams{PageSize: 200, Overflow: OverflowPause})
 	if pause.Page.TotalEstimate != 32 {
 		t.Errorf("pause = %d, want 32", pause.Page.TotalEstimate)

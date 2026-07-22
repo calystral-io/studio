@@ -54,7 +54,7 @@ func TestListLedgersSortsNamesFromCore(t *testing.T) {
 	}
 }
 
-// Client-side pagination walks the sorted catalog with a real next cursor —
+// Client-side pagination walks the sorted catalog with a real next cursor -
 // which the node-id surfaces can't do (they rely on Core LIMIT with no cursor).
 func TestListLedgersPaginates(t *testing.T) {
 	addr := startStubCoreRows(t, ledgerRows(t, "d", "a", "c", "b", "e"))

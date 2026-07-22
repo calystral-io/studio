@@ -92,7 +92,7 @@ func TestNeighborhoodBasic(t *testing.T) {
 	if len(res.Neighbors) == 0 {
 		t.Fatal("expected neighbors")
 	}
-	// Every returned edge has BOTH endpoints inside {root} ∪ neighbors.
+	// Every returned edge has BOTH endpoints inside the union of {root} and neighbors.
 	set := neighborIDs(res)
 	set[res.Root.ID] = true
 	for _, e := range res.Edges {

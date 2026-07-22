@@ -15,11 +15,11 @@ import (
 // Core's documented v1 read wire is a single column per row: a bare-variable
 // projection (`RETURN n`) pushes the matched node's anchor, which Core
 // normalizes to Int(node_id) before encoding (the shared value codec has no
-// anchor kind — see core/src/grpc/query.rs encode_row). So every read surface
+// anchor kind - see core/src/grpc/query.rs encode_row). So every read surface
 // that projects a bare node currently receives exactly one integer column, the
 // node id; each surface maps those ids into its own DTO identity field. Richer,
 // typed columns (labels, properties, bitemporal coords) populate here once Core
-// projects them — blocked on the same cyqlc parser coverage that gates
+// projects them - blocked on the same cyqlc parser coverage that gates
 // property/ORDER BY/LIMIT queries, not on this decoder.
 //
 // A row Core encoded that we cannot decode, or whose first column is not an
@@ -49,7 +49,7 @@ func decodeNodeIDRows(rows []*querypb.QueryRow, surface string) ([]string, error
 }
 
 // decodeLedgerNames extracts the ledger name from each row of the catalog
-// projection `MATCH (l:Ledger) RETURN l.name` — one string column per row. A row
+// projection `MATCH (l:Ledger) RETURN l.name` - one string column per row. A row
 // whose first column is not a string is a contract violation (internal error).
 func decodeLedgerNames(rows []*querypb.QueryRow) ([]string, error) {
 	names := make([]string, 0, len(rows))
@@ -76,13 +76,13 @@ func decodeLedgerNames(rows []*querypb.QueryRow) ([]string, error) {
 }
 
 // decodeClusterSummary maps Core's cluster-summary projection into the rollup
-// DTO. The query `MATCH (c:Cluster) RETURN c.summary` projects one column — the
-// cluster node's `summary` field, which carries the rollup as JSON text — so we
+// DTO. The query `MATCH (c:Cluster) RETURN c.summary` projects one column - the
+// cluster node's `summary` field, which carries the rollup as JSON text - so we
 // parse the first row's summary column into a ClusterSummary. Zero rows means no
 // :Cluster node is present, an honest empty rollup (found=false), not an error.
 //
-// NOTE (pre-schema): Core cannot yet discriminate node types — every single-type
-// query resolves to type_id 0 — so this projection returns every type_id-0 node.
+// NOTE (pre-schema): Core cannot yet discriminate node types - every single-type
+// query resolves to type_id 0 - so this projection returns every type_id-0 node.
 // We take the first row; a store that holds only the cluster node under that id
 // yields a clean rollup. Type-accurate selection lands with Core's schema
 // snapshot; a mistyped/garbled summary column is an internal error, not a 4xx.

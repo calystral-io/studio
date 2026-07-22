@@ -320,8 +320,8 @@ func propsWith(base map[string]any, key string, val any) map[string]any {
 
 // supersedeSystem records that anchor cur (carrying its corrected, current
 // values) was a system-time correction of an earlier version. It returns the
-// prior (superseded) row — same id, the pre-correction label and properties,
-// system interval closed at fixtureCorrectionAt — and re-opens cur's system
+// prior (superseded) row - same id, the pre-correction label and properties,
+// system interval closed at fixtureCorrectionAt - and re-opens cur's system
 // interval at the correction instant with a fresh decision LSN. The prior row
 // keeps cur's original system_from and LSN (copied before cur is mutated). Label
 // and properties are passed explicitly so a caller can correct either; today's
@@ -391,7 +391,7 @@ func seedAnchors() []AnchorDTO {
 			a.ValidTo = tp(vt)
 			a.Closed = true
 		}
-		// Flagship: a later correction recorded that this employee left — the prior
+		// Flagship: a later correction recorded that this employee left - the prior
 		// system version was open with the old title; the current version carries
 		// the corrected title AND is closed with a bounded valid window. Gives the
 		// history/diff surface a multi-version anchor exercising title + closed +

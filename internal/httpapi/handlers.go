@@ -270,7 +270,7 @@ func (s *Server) handleClusterSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !res.Present {
-		// No :Cluster node — the honest no-cluster-info shape, mirroring the
+		// No :Cluster node - the honest no-cluster-info shape, mirroring the
 		// sibling /cluster/topology endpoint, rather than a zero-valued rollup
 		// (health:"" / observed_at year 0001) promoted at the top level.
 		writeJSON(w, http.StatusOK, clusterNoInfoResponse{Cluster: false, Summary: nil, Source: res.Source})

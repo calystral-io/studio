@@ -38,7 +38,7 @@ type neighborhoodResponse struct {
 
 // handleNeighborhood serves a one-hop graph neighborhood for the seed node id,
 // projected to the optional bitemporal coordinate. The neighbor count is capped
-// server-side (limit, default/max bounded) and evenly sampled when it overflows —
+// server-side (limit, default/max bounded) and evenly sampled when it overflows -
 // the whole graph is never returned. Requires reader; 404 when the id has no
 // versions in the tenant.
 func (s *Server) handleNeighborhood(w http.ResponseWriter, r *http.Request) {

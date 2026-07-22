@@ -166,7 +166,7 @@ func (f *Fixture) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMu
 		validTo = p.ValidTo.UTC()
 	}
 	// A valid_to before the anchor's valid_from would make a negative-width valid
-	// interval that no projection could ever resolve — reject it.
+	// interval that no projection could ever resolve - reject it.
 	if validTo.Before(cur.ValidFrom) {
 		return nil, apierr.InvalidRequest("valid_to", "must not be before the node's valid_from")
 	}
