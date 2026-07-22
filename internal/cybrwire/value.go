@@ -456,7 +456,7 @@ const (
 	// top-level array of columns Core's encode_row always emits.
 	ErrRowNotArray
 	// ErrJSONNotSurfaced: a Json column was decoded but cannot be surfaced as
-	// JSON yet — its bytes are cvm canonical BINARY json, not text, so emitting
+	// JSON yet - its bytes are cvm canonical BINARY json, not text, so emitting
 	// them verbatim would be invalid JSON. Surfacing needs a binary-json decoder
 	// (a follow-up); until then a Json column is a typed error, never mis-encoded.
 	ErrJSONNotSurfaced

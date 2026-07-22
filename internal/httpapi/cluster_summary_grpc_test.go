@@ -34,7 +34,7 @@ func (s summaryRowQuery) Query(context.Context, *querypb.QueryRequest) (*querypb
 }
 
 // newGRPCServerWithQuery builds a Server whose GRPCClient talks to a local Core
-// exposing the given Query service — so a request exercises the full
+// exposing the given Query service - so a request exercises the full
 // decode-and-render path, not a fixture.
 func newGRPCServerWithQuery(t *testing.T, qs querypb.QueryServiceServer) *Server {
 	t.Helper()
@@ -70,7 +70,7 @@ func summaryRow(t *testing.T, jsonText string) *querypb.QueryRow {
 
 // A real Core row (the cluster node's summary field as JSON) renders through
 // GET /api/v1/cluster as 200 with source:core and the rollup fields promoted at
-// the top level — the first real query result surfaced by the console.
+// the top level - the first real query result surfaced by the console.
 func TestClusterSummaryGRPCHappyPath(t *testing.T) {
 	const rollup = `{"node_count":3,"shard_count":1,"region_count":1,"replication_factor":3,` +
 		`"health":"healthy","shard_health":{"healthy":1,"degraded":0,"under_replicated":0},` +

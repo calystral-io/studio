@@ -35,7 +35,7 @@ func TestDecodeRowGolden(t *testing.T) {
 }
 
 func TestDecodeRowRoundTrip(t *testing.T) {
-	// Encoding the same logical row (anchor already normalized to Int(5) — the
+	// Encoding the same logical row (anchor already normalized to Int(5) - the
 	// BFF never sees anchors, only Core's normalized wire) must reproduce Core's
 	// golden bytes exactly. This pins the Go encoder against Core's byte layout.
 	row := Array([]Value{Int(5), Int(42)})

@@ -14,7 +14,7 @@ import (
 )
 
 // A live Core catalog projection (name rows) renders through GET /api/v1/ledgers
-// as 200, source:core, names sorted — and the fields the wire cannot supply are
+// as 200, source:core, names sorted - and the fields the wire cannot supply are
 // ABSENT from the JSON (omitempty), never present-and-zero (no year-1 timestamp).
 func TestLedgersGRPCRowsHappyPath(t *testing.T) {
 	s := newGRPCServerWithQuery(t, summaryRowQuery{rows: []*querypb.QueryRow{

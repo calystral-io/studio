@@ -205,7 +205,7 @@ func (s *Server) handleAnchorDiff(w http.ResponseWriter, r *http.Request) {
 // another. A nil side means "no version at that coordinate": every field of the
 // present side is reported as added (from nil) or removed (to nil). Order is
 // stable: label, closed, valid_from, valid_to, then properties by key ascending.
-// Recording metadata (system_from/to, lsn, txn_id) is excluded by design — only
+// Recording metadata (system_from/to, lsn, txn_id) is excluded by design - only
 // business content is diffed.
 func diffAnchors(from, to *coreclient.AnchorDTO) []fieldDelta {
 	deltas := []fieldDelta{}
@@ -216,7 +216,7 @@ func diffAnchors(from, to *coreclient.AnchorDTO) []fieldDelta {
 	scalar := func(field string, before, after any, equalWhenBoth bool) {
 		switch {
 		case from == nil:
-			// Only report a field the present (to) side actually has — an optional
+			// Only report a field the present (to) side actually has - an optional
 			// field that is itself nil (e.g. valid_to) is absent, not "added".
 			if after != nil {
 				deltas = append(deltas, fieldDelta{Field: field, Op: "added", Before: nil, After: after})

@@ -40,7 +40,7 @@ type EdgeDTO struct {
 // NeighborhoodParams seeds a one-hop neighborhood expansion from a node id at a
 // bitemporal coordinate. AsOf nil applies no valid-time filter; SystemAsOf nil
 // selects the current view (system-open rows only). Limit caps the neighbor
-// count (server-side cap + sample — the whole graph is never returned).
+// count (server-side cap + sample - the whole graph is never returned).
 type NeighborhoodParams struct {
 	TenantID   string
 	ID         string
@@ -53,7 +53,7 @@ type NeighborhoodParams struct {
 // NeighborhoodResult is the seed node, its (capped + sampled) neighbors, and the
 // edges among that node set, all projected to the requested coordinate. Root is
 // nil when the id exists but is not present at the coordinate (e.g. before it was
-// created or after it was closed) — an empty graph, not an error.
+// created or after it was closed) - an empty graph, not an error.
 type NeighborhoodResult struct {
 	Root          *AnchorDTO
 	Neighbors     []AnchorDTO
@@ -363,7 +363,7 @@ func seedEdges(anchors []AnchorDTO) []EdgeDTO {
 		// >= when both endpoints exist), and end a fraction of them, so a hub's
 		// neighborhood visibly evolves as the valid-time timeline is scrubbed
 		// (edges + the leaves they reach appear and vanish over time). The default
-		// view (no as_of) is unaffected — it applies no valid-time filter.
+		// view (no as_of) is unaffected - it applies no valid-time filter.
 		seq := lsn - edgeLSNBase
 		vf = vf.AddDate(0, 0, int(seq%13)*14)
 		if validTo == nil && seq%6 == 0 {

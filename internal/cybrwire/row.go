@@ -5,7 +5,7 @@ import "encoding/base64"
 // DecodeRow decodes one query result row into its projected columns.
 //
 // Core encodes every result row as a single cybr value that is ALWAYS a
-// KindArray of the projected columns — see Core core/src/grpc/query.rs
+// KindArray of the projected columns - see Core core/src/grpc/query.rs
 // `encode_row`, which calls `encode_value(&Value::Array(cols))`. A bare-variable
 // projection (`RETURN n`) yields one column: the matched node's anchor,
 // normalized by Core to Int(node_id) because the shared value codec has no
@@ -36,7 +36,7 @@ func DecodeRow(payload []byte) ([]Value, error) {
 //	Time  -> int64            (cvm i64 instant; the caller interprets the epoch)
 //	Dur   -> int64            (cvm i64 duration)
 //	Date  -> int32            (cvm i32 day)
-//	Dec   -> string           (canonical decimal text — NOT a float, to keep precision)
+//	Dec   -> string           (canonical decimal text - NOT a float, to keep precision)
 //	Str   -> string
 //	Blob  -> string           (standard base64; JSON has no byte type)
 //	Array -> []any            (recursive, MaxDepth-bounded by DecodeRow/DecodeValue)

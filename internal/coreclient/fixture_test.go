@@ -354,7 +354,7 @@ func TestFixtureAnchorHistory(t *testing.T) {
 	f := NewFixture()
 
 	// employee_0018 was corrected: a prior open version (old title) plus a
-	// current closed version (corrected title) — two system-versions of one id.
+	// current closed version (corrected title) - two system-versions of one id.
 	res, err := f.GetAnchorHistory(ctx(), GetAnchorHistoryParams{TenantID: FixtureTenant, ID: "node_employee_0018"})
 	if err != nil {
 		t.Fatal(err)

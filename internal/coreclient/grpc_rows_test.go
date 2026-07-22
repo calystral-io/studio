@@ -104,7 +104,7 @@ func TestListLedgerEntriesSurfacesRows(t *testing.T) {
 	}
 }
 
-// An executed query with no matches is an empty item list and a 200 — never a
+// An executed query with no matches is an empty item list and a 200 - never a
 // 501. This is the case that lights up the console the moment cyqlc coverage
 // lands but no data is seeded yet.
 func TestListAnchorsEmptyResultIsNotAnError(t *testing.T) {
@@ -143,7 +143,7 @@ func TestListAnchorsSystemAsOfRefusedNotSilentlyLatest(t *testing.T) {
 }
 
 // A row Core encoded that violates the wire contract (here: a bare Int payload
-// that is not the top-level ARRAY of columns) is an INTERNAL error, not a 4xx —
+// that is not the top-level ARRAY of columns) is an INTERNAL error, not a 4xx -
 // it is Core's fault, not the caller's.
 func TestListAnchorsMalformedRowIsInternal(t *testing.T) {
 	bad, err := cybrwire.EncodeValue(cybrwire.Int(9)) // not an array -> not a row
