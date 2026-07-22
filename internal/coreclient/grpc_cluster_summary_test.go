@@ -32,8 +32,8 @@ func TestClusterSummarySurfacesRealRollup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClusterSummary: %v", err)
 	}
-	if res.Source != SourceCore {
-		t.Errorf("Source = %q, want %q", res.Source, SourceCore)
+	if res.Source != SourceCore || !res.Present {
+		t.Errorf("Source/Present = %q/%v, want core/true", res.Source, res.Present)
 	}
 	s := res.Summary
 	if s.NodeCount != 3 || s.ShardCount != 1 || s.RegionCount != 1 || s.ReplicationFactor != 3 || s.Health != "healthy" {
@@ -54,8 +54,8 @@ func TestClusterSummaryEmptyIsEmptyRollup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("empty summary must not error: %v", err)
 	}
-	if res.Source != SourceCore || res.Summary.NodeCount != 0 || res.Summary.Health != "" {
-		t.Fatalf("want empty rollup from core, got %+v", res)
+	if res.Source != SourceCore || res.Present || res.Summary.NodeCount != 0 {
+		t.Fatalf("want Present=false empty rollup from core, got %+v", res)
 	}
 }
 

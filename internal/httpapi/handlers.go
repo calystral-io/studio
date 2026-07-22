@@ -269,7 +269,23 @@ func (s *Server) handleClusterSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !res.Present {
+		// No :Cluster node — the honest no-cluster-info shape, mirroring the
+		// sibling /cluster/topology endpoint, rather than a zero-valued rollup
+		// (health:"" / observed_at year 0001) promoted at the top level.
+		writeJSON(w, http.StatusOK, clusterNoInfoResponse{Cluster: false, Summary: nil, Source: res.Source})
+		return
+	}
 	writeJSON(w, http.StatusOK, clusterSummaryResponse{ClusterSummary: res.Summary, Source: res.Source})
+}
+
+// clusterNoInfoResponse is the GET /api/v1/cluster body when Core has no :Cluster
+// node yet: summary:null / cluster:false, matching /cluster/topology's no-info
+// convention. The populated response promotes the rollup fields flat instead.
+type clusterNoInfoResponse struct {
+	Cluster bool                       `json:"cluster"`
+	Summary *coreclient.ClusterSummary `json:"summary"`
+	Source  string                     `json:"source"`
 }
 
 // nodesResponse is the paginated cluster-nodes envelope (contract section 11).

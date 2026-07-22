@@ -495,8 +495,9 @@ func (c *GRPCClient) ListLedgerEntries(ctx context.Context, p ListLedgerEntriesP
 }
 
 // ClusterSummary mints the principal JWT, issues the cluster-status read, and
-// maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we
-// never fabricate a rollup.
+// maps Core's response. Core serves this projection (main #49+): the rollup is
+// decoded from the summary column. A Core error still folds to 501; zero rows
+// (no :Cluster node) is an honest empty rollup (Present=false), never fabricated.
 func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams) (*ClusterSummaryResult, error) {
 	if p.Principal == nil {
 		return nil, apierr.Internal("grpc core client: missing principal")
@@ -517,12 +518,12 @@ func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams)
 
 	// Surface the real rollup. `RETURN c.summary` projects the cluster node's
 	// summary field (JSON text); decodeClusterSummary parses it. Zero rows (no
-	// :Cluster node) yields an empty rollup, not an error.
-	summary, _, err := decodeClusterSummary(resp.GetRows())
+	// :Cluster node) yields Present=false — an honest empty rollup, not an error.
+	summary, found, err := decodeClusterSummary(resp.GetRows())
 	if err != nil {
 		return nil, err
 	}
-	return &ClusterSummaryResult{Summary: summary, Source: SourceCore}, nil
+	return &ClusterSummaryResult{Summary: summary, Present: found, Source: SourceCore}, nil
 }
 
 // ListNodes mints the principal JWT, issues the list-nodes read, and maps Core's
@@ -820,8 +821,9 @@ func buildListLedgerEntriesCyQL(p ListLedgerEntriesParams) string {
 	return b.String()
 }
 
-// buildClusterSummaryCyQL renders a plausible CyQL read for the cluster-wide
-// status rollup. Core returns UNIMPLEMENTED regardless of the text.
+// buildClusterSummaryCyQL renders the CyQL read for the cluster-wide status
+// rollup. Core serves this bare projection (main #49+): it returns the cluster
+// node's summary field, which carries the rollup as JSON text.
 func buildClusterSummaryCyQL() string {
 	return "MATCH (c:Cluster) RETURN c.summary"
 }

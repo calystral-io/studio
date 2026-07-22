@@ -55,7 +55,7 @@ func (f *Fixture) ShardCount() int { return len(f.shards) }
 // ClusterSummary returns the precomputed cluster rollup. The cluster is shared
 // operator infrastructure, so it is not tenant-scoped.
 func (f *Fixture) ClusterSummary(_ context.Context, _ ClusterSummaryParams) (*ClusterSummaryResult, error) {
-	return &ClusterSummaryResult{Summary: f.summary, Source: SourceFixture}, nil
+	return &ClusterSummaryResult{Summary: f.summary, Present: true, Source: SourceFixture}, nil
 }
 
 // ClusterTopology returns the seeded cluster as a single aggregate payload (the
