@@ -48,6 +48,29 @@ func decodeNodeIDRows(rows []*querypb.QueryRow, surface string) ([]string, error
 	return ids, nil
 }
 
+// decodeLedgerNames extracts the ledger name from each row of the catalog
+// projection `MATCH (l:Ledger) RETURN l.name` — one string column per row. A row
+// whose first column is not a string is a contract violation (internal error).
+func decodeLedgerNames(rows []*querypb.QueryRow) ([]string, error) {
+	names := make([]string, 0, len(rows))
+	for i, r := range rows {
+		cols, err := cybrwire.DecodeRow(r.GetPayload())
+		if err != nil {
+			return nil, apierr.Internal(fmt.Sprintf("decode ledger row %d: %v", i, err))
+		}
+		if len(cols) == 0 {
+			return nil, apierr.Internal(fmt.Sprintf("ledger row %d has no columns", i))
+		}
+		name, ok := cols[0].AsString()
+		if !ok {
+			return nil, apierr.Internal(
+				fmt.Sprintf("ledger row %d column 0 is not a string name (kind %d)", i, cols[0].Kind()))
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // decodeClusterSummary maps Core's cluster-summary projection into the rollup
 // DTO. The query `MATCH (c:Cluster) RETURN c.summary` projects one column — the
 // cluster node's `summary` field, which carries the rollup as JSON text — so we
