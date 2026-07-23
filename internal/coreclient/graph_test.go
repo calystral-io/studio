@@ -49,8 +49,8 @@ func TestSeedEdgesInvariants(t *testing.T) {
 		if e.ValidTo != nil && e.ValidTo.Before(e.ValidFrom) {
 			t.Fatalf("edge %s has inverted valid interval", e.ID)
 		}
-		if e.LSN < edgeLSNBase {
-			t.Fatalf("edge %s LSN %d below dedicated base %d", e.ID, e.LSN, edgeLSNBase)
+		if e.Revision < edgeLSNBase {
+			t.Fatalf("edge %s revision %d below dedicated base %d", e.ID, e.Revision, edgeLSNBase)
 		}
 		if seen[e.ID] {
 			t.Fatalf("duplicate edge id %s", e.ID)

@@ -33,7 +33,7 @@ type EdgeDTO struct {
 	ValidTo    *time.Time     `json:"valid_to"`
 	SystemFrom time.Time      `json:"system_from"`
 	SystemTo   *time.Time     `json:"system_to"`
-	LSN        int64          `json:"lsn"`
+	Revision   int64          `json:"revision"`
 	TxnID      int64          `json:"txn_id"`
 }
 
@@ -185,7 +185,7 @@ func (f *Fixture) projectNode(tenant, id string, asOf, sysAsOf *time.Time) *Anch
 			continue
 		}
 		if best == nil || a.ValidFrom.After(best.ValidFrom) ||
-			(a.ValidFrom.Equal(best.ValidFrom) && a.LSN > best.LSN) {
+			(a.ValidFrom.Equal(best.ValidFrom) && a.Revision > best.Revision) {
 			v := a
 			best = &v
 		}
@@ -381,7 +381,7 @@ func seedEdges(anchors []AnchorDTO) []EdgeDTO {
 			ValidTo:    validTo,
 			SystemFrom: sf,
 			SystemTo:   systemTo,
-			LSN:        lsn,
+			Revision:   lsn,
 			TxnID:      lsn,
 		})
 	}
@@ -423,14 +423,14 @@ func seedEdges(anchors []AnchorDTO) []EdgeDTO {
 			ID: edgeID(lsn), Type: "WORKS_ON", Label: "works on",
 			SourceID: emp, TargetID: projects[(18+1)%nProj],
 			ValidFrom: s.vf, SystemFrom: s.sf, SystemTo: tp(fixtureCorrectionAt),
-			LSN: lsn, TxnID: lsn,
+			Revision: lsn, TxnID: lsn,
 		})
 		lsn++
 		edges = append(edges, EdgeDTO{
 			ID: edgeID(lsn), Type: "WORKS_ON", Label: "works on",
 			SourceID: emp, TargetID: projects[(18+7)%nProj],
 			ValidFrom: s.vf, SystemFrom: fixtureCorrectionAt,
-			LSN: lsn, TxnID: lsn,
+			Revision: lsn, TxnID: lsn,
 		})
 	}
 	for i, proj := range projects {

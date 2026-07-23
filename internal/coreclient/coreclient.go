@@ -42,7 +42,7 @@ type AnchorDTO struct {
 	ValidTo    *time.Time     `json:"valid_to"`
 	SystemFrom time.Time      `json:"system_from"`
 	SystemTo   *time.Time     `json:"system_to"`
-	LSN        int64          `json:"lsn"`
+	Revision   int64          `json:"revision"`
 	TxnID      int64          `json:"txn_id"`
 	Closed     bool           `json:"closed"`
 }
@@ -688,25 +688,25 @@ type CreateAnchorParams struct {
 
 // CorrectAnchorParams is a system-time correction of an anchor's content. A nil
 // Label/Properties means "unchanged"; a non-nil Properties is a FULL replace.
-// ExpectedLSN, when set, is an optimistic-concurrency precondition on the
+// ExpectedRevision, when set, is an optimistic-concurrency precondition on the
 // current version's lsn.
 type CorrectAnchorParams struct {
-	TenantID    string
-	ID          string
-	Label       *string
-	Properties  map[string]any
-	ExpectedLSN *int64
-	Principal   *auth.Principal
+	TenantID         string
+	ID               string
+	Label            *string
+	Properties       map[string]any
+	ExpectedRevision *int64
+	Principal        *auth.Principal
 }
 
 // CloseAnchorParams logically closes an anchor in valid-time. ValidTo is
-// optional (nil = the mutation instant). ExpectedLSN is an optional precondition.
+// optional (nil = the mutation instant). ExpectedRevision is an optional precondition.
 type CloseAnchorParams struct {
-	TenantID    string
-	ID          string
-	ValidTo     *time.Time
-	ExpectedLSN *int64
-	Principal   *auth.Principal
+	TenantID         string
+	ID               string
+	ValidTo          *time.Time
+	ExpectedRevision *int64
+	Principal        *auth.Principal
 }
 
 // AnchorMutationResult is the resulting current version plus, for correct/close,

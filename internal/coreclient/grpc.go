@@ -392,7 +392,7 @@ func (c *GRPCClient) applyMutation(
 		Mutations: []*mutatepb.Mutation{{Kind: kind, Payload: payload}},
 	})
 	if err != nil {
-		// NOTE: correct/close carry ExpectedLSN (optimistic-concurrency precondition).
+		// NOTE: correct/close carry ExpectedRevision (optimistic-concurrency precondition).
 		// The fixture maps a conflict to 412 precondition_failed; mapCoreMutateError
 		// currently funnels an unmapped code (e.g. FailedPrecondition) to 500 and an
 		// INVALID_ARGUMENT (rejected payload / bad write) also to 500 - deliberately
@@ -1217,8 +1217,8 @@ func encodeCorrectNodePayload(p CorrectAnchorParams) []byte {
 	if len(p.Properties) > 0 {
 		op["properties"] = p.Properties
 	}
-	if p.ExpectedLSN != nil {
-		op["expected_lsn"] = *p.ExpectedLSN
+	if p.ExpectedRevision != nil {
+		op["expected_lsn"] = *p.ExpectedRevision
 	}
 	return mutationPayload(op)
 }
@@ -1228,8 +1228,8 @@ func encodeCloseNodePayload(p CloseAnchorParams) []byte {
 	if p.ValidTo != nil {
 		op["valid_to"] = p.ValidTo.UTC().Format(time.RFC3339)
 	}
-	if p.ExpectedLSN != nil {
-		op["expected_lsn"] = *p.ExpectedLSN
+	if p.ExpectedRevision != nil {
+		op["expected_lsn"] = *p.ExpectedRevision
 	}
 	return mutationPayload(op)
 }

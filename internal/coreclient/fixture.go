@@ -70,8 +70,8 @@ func NewFixture() *Fixture {
 	maxLSN := int64(0)
 	var maxSystemFrom time.Time
 	for _, a := range anchors {
-		if a.LSN > maxLSN {
-			maxLSN = a.LSN
+		if a.Revision > maxLSN {
+			maxLSN = a.Revision
 		}
 		if a.SystemFrom.After(maxSystemFrom) {
 			maxSystemFrom = a.SystemFrom
@@ -223,7 +223,7 @@ func (f *Fixture) versionsOf(tenant, id string) []AnchorDTO {
 		if !vs[i].SystemFrom.Equal(vs[j].SystemFrom) {
 			return vs[i].SystemFrom.Before(vs[j].SystemFrom)
 		}
-		return vs[i].LSN < vs[j].LSN
+		return vs[i].Revision < vs[j].Revision
 	})
 	return vs
 }
@@ -333,7 +333,7 @@ func supersedeSystem(cur *AnchorDTO, priorLabel string, priorProps map[string]an
 	prior.SystemTo = tp(fixtureCorrectionAt)
 
 	cur.SystemFrom = fixtureCorrectionAt
-	cur.LSN = newLSN
+	cur.Revision = newLSN
 	cur.TxnID = newLSN
 	return prior
 }
@@ -382,9 +382,9 @@ func seedAnchors() []AnchorDTO {
 			},
 			ValidFrom:  vf,
 			SystemFrom: systemFor(vf, i),
-			LSN:        nextLSN(),
+			Revision:   nextLSN(),
 		}
-		a.TxnID = a.LSN
+		a.TxnID = a.Revision
 		// A few employees have left: closed with a bounded valid window.
 		if i%17 == 0 && i > 0 {
 			vt := vf.AddDate(0, 2, 0)
@@ -403,8 +403,8 @@ func seedAnchors() []AnchorDTO {
 			a.SystemFrom = fixtureCorrectionAt
 			a.ValidTo = tp(a.ValidFrom.AddDate(0, 4, 0))
 			a.Closed = true
-			a.LSN = nextLSN()
-			a.TxnID = a.LSN
+			a.Revision = nextLSN()
+			a.TxnID = a.Revision
 			out = append(out, prior, a)
 			continue
 		}
@@ -437,9 +437,9 @@ func seedAnchors() []AnchorDTO {
 			},
 			ValidFrom:  vf,
 			SystemFrom: systemFor(vf, i),
-			LSN:        nextLSN(),
+			Revision:   nextLSN(),
 		}
-		a.TxnID = a.LSN
+		a.TxnID = a.Revision
 		out = append(out, a)
 	}
 
@@ -461,9 +461,9 @@ func seedAnchors() []AnchorDTO {
 			},
 			ValidFrom:  vf,
 			SystemFrom: systemFor(vf, i),
-			LSN:        nextLSN(),
+			Revision:   nextLSN(),
 		}
-		a.TxnID = a.LSN
+		a.TxnID = a.Revision
 		if i%13 == 0 && i > 0 {
 			vt := vf.AddDate(0, 3, 0)
 			a.ValidTo = tp(vt)
@@ -496,9 +496,9 @@ func seedAnchors() []AnchorDTO {
 			},
 			ValidFrom:  vf,
 			SystemFrom: systemFor(vf, i),
-			LSN:        nextLSN(),
+			Revision:   nextLSN(),
 		}
-		a.TxnID = a.LSN
+		a.TxnID = a.Revision
 		// A few customer tiers were later corrected (system-time supersession).
 		if i%9 == 0 && i > 0 {
 			priorTier := tiers[(i+1)%len(tiers)]

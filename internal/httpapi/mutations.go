@@ -35,14 +35,14 @@ type createAnchorRequest struct {
 }
 
 type correctAnchorRequest struct {
-	Label       *string        `json:"label"`
-	Properties  map[string]any `json:"properties"`
-	ExpectedLSN *int64         `json:"expected_lsn"`
+	Label            *string        `json:"label"`
+	Properties       map[string]any `json:"properties"`
+	ExpectedRevision *int64         `json:"expected_revision"`
 }
 
 type closeAnchorRequest struct {
-	ValidTo     string `json:"valid_to"`
-	ExpectedLSN *int64 `json:"expected_lsn"`
+	ValidTo          string `json:"valid_to"`
+	ExpectedRevision *int64 `json:"expected_revision"`
 }
 
 // decodeMutationBody decodes a JSON request body into dst, rejecting malformed
@@ -157,12 +157,12 @@ func (s *Server) handleCorrectAnchor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := s.core.CorrectAnchor(r.Context(), coreclient.CorrectAnchorParams{
-		TenantID:    p.TenantID,
-		ID:          chi.URLParam(r, "id"),
-		Label:       body.Label,
-		Properties:  body.Properties,
-		ExpectedLSN: body.ExpectedLSN,
-		Principal:   p,
+		TenantID:         p.TenantID,
+		ID:               chi.URLParam(r, "id"),
+		Label:            body.Label,
+		Properties:       body.Properties,
+		ExpectedRevision: body.ExpectedRevision,
+		Principal:        p,
 	})
 	if err != nil {
 		apierr.Write(w, reqID, err)
@@ -191,11 +191,11 @@ func (s *Server) handleCloseAnchor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := s.core.CloseAnchor(r.Context(), coreclient.CloseAnchorParams{
-		TenantID:    p.TenantID,
-		ID:          chi.URLParam(r, "id"),
-		ValidTo:     validTo,
-		ExpectedLSN: body.ExpectedLSN,
-		Principal:   p,
+		TenantID:         p.TenantID,
+		ID:               chi.URLParam(r, "id"),
+		ValidTo:          validTo,
+		ExpectedRevision: body.ExpectedRevision,
+		Principal:        p,
 	})
 	if err != nil {
 		apierr.Write(w, reqID, err)
