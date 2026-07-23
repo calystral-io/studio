@@ -93,7 +93,7 @@ func (f *Fixture) CreateAnchor(_ context.Context, p CreateAnchorParams) (*Anchor
 		Properties: cloneProps(p.Properties),
 		ValidFrom:  validFrom,
 		SystemFrom: at,
-		LSN:        lsn,
+		Revision:   lsn,
 		TxnID:      lsn,
 	}
 	f.anchors = append(f.anchors, a)
@@ -103,7 +103,7 @@ func (f *Fixture) CreateAnchor(_ context.Context, p CreateAnchorParams) (*Anchor
 // CorrectAnchor records a system-time correction: it supersedes the current
 // version (closing its system interval at the mutation instant) and appends a
 // new current version carrying the corrected label/properties, with the valid
-// window unchanged. 404 when the id has no version; 409 on a stale expected_lsn.
+// window unchanged. 404 when the id has no version; 409 on a stale expected_revision.
 func (f *Fixture) CorrectAnchor(_ context.Context, p CorrectAnchorParams) (*AnchorMutationResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -113,8 +113,8 @@ func (f *Fixture) CorrectAnchor(_ context.Context, p CorrectAnchorParams) (*Anch
 		return nil, apierr.NotFound("node:" + p.ID)
 	}
 	cur := f.anchors[idx]
-	if p.ExpectedLSN != nil && *p.ExpectedLSN != cur.LSN {
-		return nil, apierr.PreconditionFailed(*p.ExpectedLSN, cur.LSN)
+	if p.ExpectedRevision != nil && *p.ExpectedRevision != cur.Revision {
+		return nil, apierr.PreconditionFailed(*p.ExpectedRevision, cur.Revision)
 	}
 
 	at := f.mutationInstant()
@@ -132,7 +132,7 @@ func (f *Fixture) CorrectAnchor(_ context.Context, p CorrectAnchorParams) (*Anch
 	}
 	next.SystemFrom = at
 	next.SystemTo = nil
-	next.LSN = lsn
+	next.Revision = lsn
 	next.TxnID = lsn
 
 	f.anchors = append(f.anchors, next)
@@ -143,7 +143,7 @@ func (f *Fixture) CorrectAnchor(_ context.Context, p CorrectAnchorParams) (*Anch
 // CloseAnchor logically closes an anchor in valid-time: it supersedes the
 // current version and appends a new current version with valid_to set and
 // closed = true. 404 when the id has no version; 400 invalid_request when it is
-// already closed; 409 on a stale expected_lsn.
+// already closed; 409 on a stale expected_revision.
 func (f *Fixture) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMutationResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -156,8 +156,8 @@ func (f *Fixture) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMu
 	if cur.Closed {
 		return nil, apierr.InvalidRequest("closed", "node is already closed; use a correction to change it")
 	}
-	if p.ExpectedLSN != nil && *p.ExpectedLSN != cur.LSN {
-		return nil, apierr.PreconditionFailed(*p.ExpectedLSN, cur.LSN)
+	if p.ExpectedRevision != nil && *p.ExpectedRevision != cur.Revision {
+		return nil, apierr.PreconditionFailed(*p.ExpectedRevision, cur.Revision)
 	}
 
 	at := f.mutationInstant()
@@ -180,7 +180,7 @@ func (f *Fixture) CloseAnchor(_ context.Context, p CloseAnchorParams) (*AnchorMu
 	next.Closed = true
 	next.SystemFrom = at
 	next.SystemTo = nil
-	next.LSN = lsn
+	next.Revision = lsn
 	next.TxnID = lsn
 
 	f.anchors = append(f.anchors, next)

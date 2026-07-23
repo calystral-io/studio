@@ -169,9 +169,9 @@ func TestMutationsConflicts(t *testing.T) {
 		t.Errorf("code = %q", env.Error.Code)
 	}
 
-	// Stale expected_lsn -> 409 precondition_failed.
+	// Stale expected_revision -> 409 precondition_failed.
 	rec = doBody(t, s, http.MethodPost, "/api/v1/nodes/node_employee_0001/corrections",
-		"mock-writer-token", `{"label":"L","expected_lsn":1}`)
+		"mock-writer-token", `{"label":"L","expected_revision":1}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("precondition status = %d body=%s", rec.Code, rec.Body.String())
 	}

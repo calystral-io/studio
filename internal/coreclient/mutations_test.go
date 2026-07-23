@@ -38,8 +38,8 @@ func TestFixtureCreateAnchor(t *testing.T) {
 	if res.Anchor.SystemTo != nil || res.Anchor.ValidTo != nil || res.Anchor.Closed {
 		t.Errorf("created anchor should be open and not closed: %+v", res.Anchor)
 	}
-	if res.Anchor.LSN <= 4000 {
-		t.Errorf("runtime lsn %d should exceed seeded lsns", res.Anchor.LSN)
+	if res.Anchor.Revision <= 4000 {
+		t.Errorf("runtime revision %d should exceed seeded revisions", res.Anchor.Revision)
 	}
 	if f.Count() != before+1 {
 		t.Errorf("count = %d, want %d", f.Count(), before+1)
@@ -134,12 +134,12 @@ func TestFixtureCorrectAnchor(t *testing.T) {
 
 	// Stale precondition -> 409.
 	wrong := int64(1)
-	_, err = f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: id, Label: &newLabel, ExpectedLSN: &wrong})
+	_, err = f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: id, Label: &newLabel, ExpectedRevision: &wrong})
 	assertCode(t, err, apierr.CodePreconditionFailed)
 
 	// Matching precondition -> success.
 	cur := currentVersion(t, f, id)
-	if _, err := f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: id, Label: &newLabel, ExpectedLSN: &cur.LSN}); err != nil {
+	if _, err := f.CorrectAnchor(ctx(), CorrectAnchorParams{TenantID: FixtureTenant, ID: id, Label: &newLabel, ExpectedRevision: &cur.Revision}); err != nil {
 		t.Errorf("matching precondition should succeed: %v", err)
 	}
 

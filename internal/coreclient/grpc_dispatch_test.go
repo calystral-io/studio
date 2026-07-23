@@ -140,7 +140,7 @@ func TestGRPCMutationsDispatchToCore(t *testing.T) {
 			return err
 		}, anchorCreateSurface, mutatepb.MutationKind_MUTATION_KIND_CREATE_NODE},
 		{"correct", func() error {
-			_, err := c.CorrectAnchor(context.Background(), CorrectAnchorParams{TenantID: "demo-tenant", ID: "node_1", Label: &label, ExpectedLSN: &lsn, Principal: p})
+			_, err := c.CorrectAnchor(context.Background(), CorrectAnchorParams{TenantID: "demo-tenant", ID: "node_1", Label: &label, ExpectedRevision: &lsn, Principal: p})
 			return err
 		}, anchorCorrectSurface, mutatepb.MutationKind_MUTATION_KIND_UPDATE},
 		{"close", func() error {

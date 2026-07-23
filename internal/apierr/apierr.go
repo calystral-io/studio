@@ -139,7 +139,7 @@ func AlreadyExists(resource string) *APIError {
 // caller's expected lsn no longer matches the current version's actual lsn.
 func PreconditionFailed(expected, actual int64) *APIError {
 	return New(CodePreconditionFailed,
-		fmt.Sprintf("precondition failed: expected lsn %d but current is %d", expected, actual),
+		fmt.Sprintf("precondition failed: expected revision %d but current is %d", expected, actual),
 		map[string]any{"expected": expected, "actual": actual})
 }
 
