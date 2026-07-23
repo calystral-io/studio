@@ -2,6 +2,7 @@ package coreclient
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -113,18 +114,26 @@ func TestBuildClusterCyQL(t *testing.T) {
 		t.Errorf("summary cyql %q missing MATCH/Cluster", got)
 	}
 
-	gotN := buildListNodesCyQL(ListNodesParams{PageSize: 10, Region: "us-east", Status: "draining", Q: "node-0001"})
+	gotN, paramsN := buildListNodesCyQL(ListNodesParams{PageSize: 10, Region: "us-east", Status: "draining", Q: "node-0001"})
 	for _, want := range []string{"ClusterNode", "us-east", "draining", "node-0001", "ORDER BY n.id", "LIMIT 10"} {
 		if !contains(gotN, want) {
 			t.Errorf("nodes cyql %q missing %q", gotN, want)
 		}
 	}
+	// The compared values are collected as params in first-appearance order, so
+	// Core binds them into the LOAD_PARAM slots the compiler assigns.
+	if got, want := cybrStrings(t, paramsN), []string{"us-east", "draining", "node-0001"}; !slices.Equal(got, want) {
+		t.Errorf("nodes params = %v, want %v", got, want)
+	}
 
-	gotS := buildListShardsCyQL(ListShardsParams{PageSize: 25, Region: "ap-south", Status: "degraded", Node: "node-0002", Q: "rg_00007"})
+	gotS, paramsS := buildListShardsCyQL(ListShardsParams{PageSize: 25, Region: "ap-south", Status: "degraded", Node: "node-0002", Q: "rg_00007"})
 	for _, want := range []string{"Shard", "ap-south", "degraded", "node-0002", "rg_00007", "ORDER BY s.id", "LIMIT 25"} {
 		if !contains(gotS, want) {
 			t.Errorf("shards cyql %q missing %q", gotS, want)
 		}
+	}
+	if got, want := cybrStrings(t, paramsS), []string{"ap-south", "degraded", "node-0002", "rg_00007"}; !slices.Equal(got, want) {
+		t.Errorf("shards params = %v, want %v", got, want)
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/calystral-io/studio/internal/auth"
 	"github.com/calystral-io/studio/internal/corepb/mutatepb"
 	"github.com/calystral-io/studio/internal/corepb/querypb"
+	"github.com/calystral-io/studio/internal/cybrwire"
 )
 
 // principalMetadataKey is the gRPC metadata key Core reads the principal from.
@@ -205,9 +206,15 @@ func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*Lis
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, principalMetadataKey, token)
 
+	cyql, params := buildListAnchorsCyQL(p)
+	encodedParams, err := encodeQueryParams(params)
+	if err != nil {
+		return nil, err
+	}
 	req := &querypb.QueryRequest{
-		Cyql:   buildListAnchorsCyQL(p),
+		Cyql:   cyql,
 		Tenant: p.Principal.TenantID,
+		Params: encodedParams,
 	}
 	if p.AsOf != nil {
 		req.AsOfUnixMs = uint64(p.AsOf.UnixMilli())
@@ -564,9 +571,15 @@ func (c *GRPCClient) ListNodes(ctx context.Context, p ListNodesParams) (*ListNod
 		return nil, err
 	}
 
+	cyql, params := buildListNodesCyQL(p)
+	encodedParams, err := encodeQueryParams(params)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
-		Cyql:   buildListNodesCyQL(p),
+		Cyql:   cyql,
 		Tenant: p.Principal.TenantID,
+		Params: encodedParams,
 	})
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, clusterNodesSurface)
@@ -602,9 +615,15 @@ func (c *GRPCClient) ListShards(ctx context.Context, p ListShardsParams) (*ListS
 		return nil, err
 	}
 
+	cyql, params := buildListShardsCyQL(p)
+	encodedParams, err := encodeQueryParams(params)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := c.query.Query(ctx, &querypb.QueryRequest{
-		Cyql:   buildListShardsCyQL(p),
+		Cyql:   cyql,
 		Tenant: p.Principal.TenantID,
+		Params: encodedParams,
 	})
 	if err != nil {
 		return nil, mapCoreErrorForSurface(err, clusterShardsSurface)
@@ -850,18 +869,22 @@ func buildClusterSummaryCyQL() string {
 
 // buildListNodesCyQL renders a plausible CyQL read for the cluster nodes with
 // the requested region/status/q filters. Core returns UNIMPLEMENTED regardless.
-func buildListNodesCyQL(p ListNodesParams) string {
+func buildListNodesCyQL(p ListNodesParams) (string, []cybrwire.Value) {
 	var b strings.Builder
 	b.WriteString("MATCH (n:ClusterNode)")
 	var wheres []string
+	var params []cybrwire.Value
 	if p.Region != "" {
 		wheres = append(wheres, fmt.Sprintf("n.region = %q", p.Region))
+		params = append(params, cybrwire.Str(p.Region))
 	}
 	if p.Status != "" {
 		wheres = append(wheres, fmt.Sprintf("n.status = %q", p.Status))
+		params = append(params, cybrwire.Str(p.Status))
 	}
 	if q := strings.TrimSpace(p.Q); q != "" {
 		wheres = append(wheres, fmt.Sprintf("n CONTAINS %q", q))
+		params = append(params, cybrwire.Str(q))
 	}
 	if len(wheres) > 0 {
 		b.WriteString(" WHERE ")
@@ -869,21 +892,24 @@ func buildListNodesCyQL(p ListNodesParams) string {
 	}
 	b.WriteString(" RETURN n ORDER BY n.id")
 	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
-	return b.String()
+	return b.String(), params
 }
 
 // buildListShardsCyQL renders a plausible CyQL read for the cluster shards with
 // the requested region/status/node/q filters. Core returns UNIMPLEMENTED
 // regardless of the text.
-func buildListShardsCyQL(p ListShardsParams) string {
+func buildListShardsCyQL(p ListShardsParams) (string, []cybrwire.Value) {
 	var b strings.Builder
 	b.WriteString("MATCH (s:Shard)")
 	var wheres []string
+	var params []cybrwire.Value
 	if p.Region != "" {
 		wheres = append(wheres, fmt.Sprintf("s.region = %q", p.Region))
+		params = append(params, cybrwire.Str(p.Region))
 	}
 	if p.Status != "" {
 		wheres = append(wheres, fmt.Sprintf("s.status = %q", p.Status))
+		params = append(params, cybrwire.Str(p.Status))
 	}
 	if p.Node != "" {
 		// Contract `node` semantics are leader-OR-replica. This relies on the
@@ -892,9 +918,11 @@ func buildListShardsCyQL(p ListShardsParams) string {
 		// future Core ever stores the leader outside replica_node_ids, widen this
 		// to also match s.leader_node_id.
 		wheres = append(wheres, fmt.Sprintf("%q IN s.replica_node_ids", p.Node))
+		params = append(params, cybrwire.Str(p.Node))
 	}
 	if q := strings.TrimSpace(p.Q); q != "" {
 		wheres = append(wheres, fmt.Sprintf("s CONTAINS %q", q))
+		params = append(params, cybrwire.Str(q))
 	}
 	if len(wheres) > 0 {
 		b.WriteString(" WHERE ")
@@ -902,7 +930,7 @@ func buildListShardsCyQL(p ListShardsParams) string {
 	}
 	b.WriteString(" RETURN s ORDER BY s.id")
 	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
-	return b.String()
+	return b.String(), params
 }
 
 // buildRuntimeSummaryCyQL renders a plausible CyQL read for the cvm runtime-state
@@ -1098,15 +1126,18 @@ func mapCoreMutateError(err error, surface string) error {
 // buildListAnchorsCyQL renders a plausible CyQL read for node anchors with the
 // requested filters. The exact dialect firms up with Core's execution surface;
 // today Core returns UNIMPLEMENTED regardless of the text.
-func buildListAnchorsCyQL(p ListAnchorsParams) string {
+func buildListAnchorsCyQL(p ListAnchorsParams) (string, []cybrwire.Value) {
 	var b strings.Builder
 	b.WriteString("MATCH (n:Node)")
 	var wheres []string
+	var params []cybrwire.Value
 	if p.Type != "" {
 		wheres = append(wheres, fmt.Sprintf("n.type = %q", p.Type))
+		params = append(params, cybrwire.Str(p.Type))
 	}
 	if q := strings.TrimSpace(p.Q); q != "" {
 		wheres = append(wheres, fmt.Sprintf("n CONTAINS %q", q))
+		params = append(params, cybrwire.Str(q))
 	}
 	if len(wheres) > 0 {
 		b.WriteString(" WHERE ")
@@ -1114,7 +1145,7 @@ func buildListAnchorsCyQL(p ListAnchorsParams) string {
 	}
 	b.WriteString(" RETURN n ORDER BY n.id")
 	fmt.Fprintf(&b, " LIMIT %d", p.PageSize)
-	return b.String()
+	return b.String(), params
 }
 
 // buildAnchorHistoryCyQL renders a plausible CyQL read for every bitemporal
