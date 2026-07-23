@@ -188,8 +188,8 @@ func (c *GRPCClient) recordReadiness(ready bool, reason string) {
 }
 
 // ListAnchors mints the principal JWT, issues the list-anchors CyQL read, and
-// maps Core's response. Today the only mapped success path is UNIMPLEMENTED ->
-// 501; the row-decode path is structured but explicitly TODO (no cybr decoder).
+// decodes the returned rows into AnchorDTOs. A Core read error (e.g. a cyqlc
+// parser-coverage gap on a filter) folds to 501; rows are never fabricated.
 func (c *GRPCClient) ListAnchors(ctx context.Context, p ListAnchorsParams) (*ListAnchorsResult, error) {
 	// Validate the cursor up front so source=grpc rejects bad cursors the same
 	// way the fixture does (400), independent of the upstream gap.
@@ -420,9 +420,9 @@ func mutationResultTODO(resp *mutatepb.MutateResponse, surface string) (*AnchorM
 	return nil, apierr.Unimplemented(surface)
 }
 
-// ListLedgers mints the principal JWT, issues the list-ledgers CyQL read, and
-// maps Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; the
-// row-decode path is structured but explicitly TODO (no cybr decoder).
+// ListLedgers mints the principal JWT, projects the ledger names Core returns,
+// and sorts / q-filters / paginates the catalog client-side. A Core read error
+// folds to 501; ledgers are never fabricated.
 func (c *GRPCClient) ListLedgers(ctx context.Context, p ListLedgersParams) (*ListLedgersResult, error) {
 	offset, err := decodeCursor(p.Cursor)
 	if err != nil {
@@ -477,8 +477,9 @@ func (c *GRPCClient) ListLedgers(ctx context.Context, p ListLedgersParams) (*Lis
 }
 
 // ListLedgerEntries mints the principal JWT, issues the list-entries CyQL read,
-// and maps Core's response. As with ListLedgers, the only mapped path today is
-// UNIMPLEMENTED -> 501; we never fabricate entries.
+// and decodes the returned rows into LedgerEntry ids. The entries query uses an
+// edge hop (-[:IN]->) cyqlc does not parse yet, so it folds to 501 today; entries
+// are never fabricated.
 func (c *GRPCClient) ListLedgerEntries(ctx context.Context, p ListLedgerEntriesParams) (*ListLedgerEntriesResult, error) {
 	if p.FromLSN != nil && p.ToLSN != nil && *p.FromLSN > *p.ToLSN {
 		return nil, apierr.InvalidLSNRange(*p.FromLSN, *p.ToLSN)
@@ -555,9 +556,9 @@ func (c *GRPCClient) ClusterSummary(ctx context.Context, p ClusterSummaryParams)
 	return &ClusterSummaryResult{Summary: summary, Present: found, Source: SourceCore}, nil
 }
 
-// ListNodes mints the principal JWT, issues the list-nodes read, and maps Core's
-// response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
-// fabricate nodes.
+// ListNodes mints the principal JWT, issues the list-nodes read, and decodes the
+// returned node-id rows into NodeDTOs. A Core read error folds to 501; nodes are
+// never fabricated.
 func (c *GRPCClient) ListNodes(ctx context.Context, p ListNodesParams) (*ListNodesResult, error) {
 	if _, err := decodeCursor(p.Cursor); err != nil {
 		return nil, err
@@ -599,9 +600,9 @@ func (c *GRPCClient) ListNodes(ctx context.Context, p ListNodesParams) (*ListNod
 	return &ListNodesResult{Items: items, Page: gRPCPage(p.PageSize, len(items)), Source: SourceCore}, nil
 }
 
-// ListShards mints the principal JWT, issues the list-shards read, and maps
-// Core's response. Today the only mapped path is UNIMPLEMENTED -> 501; we never
-// fabricate shards.
+// ListShards mints the principal JWT, issues the list-shards read, and decodes
+// the returned node-id rows into ShardDTOs. A Core read error folds to 501;
+// shards are never fabricated.
 func (c *GRPCClient) ListShards(ctx context.Context, p ListShardsParams) (*ListShardsResult, error) {
 	if _, err := decodeCursor(p.Cursor); err != nil {
 		return nil, err

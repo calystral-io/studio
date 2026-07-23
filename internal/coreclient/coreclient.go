@@ -2,8 +2,8 @@
 // CoreClient interface for listing node anchors and bitemporal ledger entries
 // with cursor pagination and filters, plus two implementations selected by
 // STUDIO_CORE_SOURCE: a seeded in-memory fixture (default) and a gRPC adapter
-// against Core's QueryService (which returns UNIMPLEMENTED today). The DTOs are
-// identical regardless of source so the UI renders both the same.
+// that runs each read against Core's QueryService and decodes the returned rows.
+// The DTOs are identical regardless of source so the UI renders both the same.
 package coreclient
 
 import (
