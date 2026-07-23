@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -250,11 +251,14 @@ func TestCheckCoreLogsOnlyOnTransition(t *testing.T) {
 }
 
 func TestBuildListAnchorsCyQL(t *testing.T) {
-	got := buildListAnchorsCyQL(ListAnchorsParams{PageSize: 10, Type: "Employee", Q: "ada"})
+	got, params := buildListAnchorsCyQL(ListAnchorsParams{PageSize: 10, Type: "Employee", Q: "ada"})
 	for _, want := range []string{"MATCH", "Employee", "ada", "LIMIT 10"} {
 		if !contains(got, want) {
 			t.Errorf("cyql %q missing %q", got, want)
 		}
+	}
+	if got, want := cybrStrings(t, params), []string{"Employee", "ada"}; !slices.Equal(got, want) {
+		t.Errorf("anchor params = %v, want %v", got, want)
 	}
 }
 
